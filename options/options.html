@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced Bug Reporter - Options</title>
+    <link rel="stylesheet" href="options.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Configuration Settings</h1>
+            <p>Configure your API keys and Jira connection details below.</p>
+        </header>
+
+        <form id="optionsForm">
+            <section class="config-section">
+                <h2>Jira Configuration</h2>
+                <div class="form-group">
+                    <label for="jiraBaseUrl">Jira Base URL:</label>
+                    <input type="url" id="jiraBaseUrl" name="jiraBaseUrl" placeholder="e.g., https://your-domain.atlassian.net" required>
+                    <small>The main URL of your Jira Cloud instance.</small>
+                </div>
+                <div class="form-group">
+                    <label for="jiraEmail">Jira Email Address:</label>
+                    <input type="email" id="jiraEmail" name="jiraEmail" placeholder="Your Jira login email" required>
+                    <small>The email address you use to log in to Jira.</small>
+                </div>
+                <div class="form-group">
+                    <label for="jiraApiToken">Jira API Token:</label>
+                    <input type="password" id="jiraApiToken" name="jiraApiToken" placeholder="Enter your Jira API Token" required>
+                    <small>Generate an API token from your Atlassian account settings. <a href="https://support.atlassian.com/atlassian-account/docs/manage-api-tokens-for-your-atlassian-account/" target="_blank" rel="noopener noreferrer">How to get a Jira API token?</a></small>
+                </div>
+                 <div class="form-group">
+                    <label for="jiraProjectKey">Default Jira Project Key:</label>
+                    <input type="text" id="jiraProjectKey" name="jiraProjectKey" placeholder="e.g., PROJ" required>
+                    <small>The default project key (e.g., PROJ, TEST) where bugs will be created.</small>
+                </div>
+            </section>
+
+            <section class="config-section">
+                <h2>AI Service Configuration (Gemini)</h2>
+                <div class="form-group">
+                    <label for="aiApiKey">Gemini API Key:</label>
+                    <input type="password" id="aiApiKey" name="aiApiKey" placeholder="Enter your Gemini API Key" required>
+                    <small>Obtain your API key from Google AI Studio. <a href="https://ai.google.dev/gemini-api/docs/api-key" target="_blank" rel="noopener noreferrer">How to get a Gemini API key?</a></small>
+                </div>
+            </section>
+
+            <div class="form-actions">
+                <button type="submit" id="saveButton" class="btn btn-primary">Save Settings</button>
+            </div>
+            <p id="optionsStatus" class="status-message"></p>
+        </form>
+
+        <footer>
+            <p>Advanced Bug Reporter &copy; 2024</p>
+        </footer>
+    </div>
+    <script src="options.js"></script>
+</body>
+</html>

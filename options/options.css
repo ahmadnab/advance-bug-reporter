@@ -1,0 +1,161 @@
+/* options/options.css */
+body {
+    font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+    background-color: #f9f9f9; /* Lighter gray background */
+    color: #333;
+    margin: 0;
+    padding: 20px;
+    display: flex;
+    justify-content: center;
+    align-items: flex-start; /* Align to top for longer content */
+    min-height: 100vh;
+    box-sizing: border-box;
+}
+
+.container {
+    background-color: #fff;
+    padding: 30px 40px; /* More padding */
+    border-radius: 8px;
+    box-shadow: 0 4px 15px rgba(0, 0, 0, 0.1); /* Softer shadow */
+    width: 100%;
+    max-width: 700px; /* Wider for better readability */
+}
+
+header {
+    text-align: center;
+    margin-bottom: 30px; /* Increased margin */
+    padding-bottom: 15px;
+    border-bottom: 1px solid #e0e0e0;
+}
+
+header h1 {
+    font-size: 28px; /* Larger title */
+    color: #007bff; /* Primary color */
+    margin-bottom: 5px;
+}
+
+header p {
+    font-size: 15px;
+    color: #555;
+    margin-bottom: 0;
+}
+
+.config-section {
+    margin-bottom: 30px; /* Spacing between sections */
+}
+
+.config-section h2 {
+    font-size: 20px; /* Section titles */
+    color: #333;
+    margin-bottom: 20px; /* Space below section title */
+    padding-bottom: 8px;
+    border-bottom: 1px solid #eee;
+}
+
+.form-group {
+    margin-bottom: 20px; /* Spacing between form fields */
+}
+
+.form-group label {
+    display: block;
+    font-weight: 600;
+    margin-bottom: 8px; /* Space between label and input */
+    font-size: 14px;
+}
+
+.form-group input[type="url"],
+.form-group input[type="email"],
+.form-group input[type="password"],
+.form-group input[type="text"] {
+    width: 100%;
+    padding: 12px; /* More padding in inputs */
+    border: 1px solid #ccc;
+    border-radius: 4px;
+    box-sizing: border-box;
+    font-size: 14px;
+    transition: border-color 0.3s ease, box-shadow 0.3s ease;
+}
+
+.form-group input[type="url"]:focus,
+.form-group input[type="email"]:focus,
+.form-group input[type="password"]:focus,
+.form-group input[type="text"]:focus {
+    border-color: #007bff;
+    outline: none;
+    box-shadow: 0 0 0 0.2rem rgba(0, 123, 255, 0.25); /* Focus indicator */
+}
+
+.form-group small {
+    display: block;
+    margin-top: 6px; /* Space above help text */
+    font-size: 13px;
+    color: #666;
+}
+
+.form-group small a {
+    color: #007bff;
+    text-decoration: none;
+}
+
+.form-group small a:hover {
+    text-decoration: underline;
+}
+
+.form-actions {
+    margin-top: 30px;
+    text-align: center; /* Center save button */
+}
+
+.btn {
+    padding: 12px 25px; /* Larger button padding */
+    border: none;
+    border-radius: 4px;
+    cursor: pointer;
+    font-size: 16px; /* Larger button font */
+    font-weight: 500;
+    transition: background-color 0.2s ease-in-out, box-shadow 0.2s ease;
+}
+
+.btn:hover {
+    box-shadow: 0 2px 8px rgba(0,0,0,0.15);
+}
+
+.btn-primary {
+    background-color: #007bff;
+    color: white;
+}
+
+.btn-primary:hover:not(:disabled) {
+    background-color: #0056b3;
+}
+
+.btn:disabled {
+    background-color: #ccc;
+    cursor: not-allowed;
+    opacity: 0.7;
+}
+
+.status-message {
+    margin-top: 20px;
+    font-size: 14px;
+    font-weight: 500;
+    text-align: center;
+    min-height: 20px; /* Reserve space */
+}
+
+.status-message.success {
+    color: #28a745; /* Green for success */
+}
+
+.status-message.error {
+    color: #dc3545; /* Red for error */
+}
+
+footer {
+    text-align: center;
+    margin-top: 40px;
+    padding-top: 20px;
+    border-top: 1px solid #e0e0e0;
+    font-size: 13px;
+    color: #777;
+}

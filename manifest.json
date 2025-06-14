@@ -1,0 +1,50 @@
+{
+    "manifest_version": 3,
+    "name": "Advanced Bug Reporter",
+    "version": "1.0.0",
+    "description": "Records screen, console logs, and network requests for streamlined bug reporting to Jira, with AI assistance.",
+    "permissions": [
+      "storage",
+      "tabCapture",
+      "scripting",
+      "debugger",
+      "offscreen",
+      "alarms"
+    ],
+    "host_permissions": [
+      "<all_urls>",
+      "https://*.atlassian.net/*",
+      "https://generativelanguage.googleapis.com/*"
+    ],
+    "background": {
+      "service_worker": "service-worker.js",
+      "type": "module"
+    },
+    "action": {
+      "default_popup": "popup/popup.html",
+      "default_icon": {
+        "16": "icons/icon16.png",
+        "48": "icons/icon48.png",
+        "128": "icons/icon128.png"
+      }
+    },
+    "options_ui": {
+      "page": "options/options.html",
+      "open_in_tab": true
+    },
+    "icons": {
+      "16": "icons/icon16.png",
+      "48": "icons/icon48.png",
+      "128": "icons/icon128.png"
+    },
+    "content_security_policy": {
+      "extension_pages": "script-src 'self'; object-src 'self'; connect-src 'self' https://*.atlassian.net https://generativelanguage.googleapis.com;"
+    },
+    "web_accessible_resources": [
+      {
+        "resources": ["offscreen/offscreen.html"],
+        "matches": ["<all_urls>"]
+      }
+    ]
+  }
+  

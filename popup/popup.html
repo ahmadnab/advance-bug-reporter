@@ -1,0 +1,76 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Advanced Bug Reporter</title>
+    <link rel="stylesheet" href="popup.css">
+</head>
+<body>
+    <div class="container">
+        <header>
+            <h1>Bug Reporter</h1>
+        </header>
+
+        <div id="error-message-container" class="error-message" style="display:none;">
+            <p id="errorMessage"></p>
+        </div>
+
+        <div id="recording-controls">
+            <button id="toggleRecordButton" class="btn btn-primary">Start Recording</button>
+            <p id="statusMessage">Status: Idle</p>
+        </div>
+
+        <div id="bug-form" style="display:none;">
+            <h2>Report Details</h2>
+
+            <div class="form-group jira-config-group">
+                <label for="jiraProject">Jira Project:</label>
+                <select id="jiraProject" name="jiraProject" disabled>
+                    <option value="">Loading projects...</option>
+                </select>
+                <small id="jiraProjectLoader" class="loader" style="display:none;">Loading...</small>
+            </div>
+
+            <div class="form-group jira-config-group">
+                <label for="jiraIssueType">Issue Type:</label>
+                <select id="jiraIssueType" name="jiraIssueType" disabled>
+                    <option value="">Select a project first...</option>
+                </select>
+                <small id="jiraIssueTypeLoader" class="loader" style="display:none;">Loading...</small>
+            </div>
+
+            <div class="form-group">
+                <label for="bugSummary">Summary:</label>
+                <input type="text" id="bugSummary" name="bugSummary" placeholder="Concisely summarize the bug">
+            </div>
+            <div class="form-group">
+                <label for="bugDescription">Description / Steps to Reproduce:</label>
+                <textarea id="bugDescription" name="bugDescription" rows="4" placeholder="Describe the issue and steps to reproduce it..."></textarea>
+            </div>
+
+            <div id="ai-section">
+                <button id="generateAIButton" class="btn btn-secondary">Generate AI Suggestions</button>
+                <div id="ai-suggestions" style="display:none; margin-top:10px;">
+                    <div class="form-group">
+                        <label for="aiSummary">AI Suggested Summary (Editable):</label>
+                        <input type="text" id="aiSummary" name="aiSummary">
+                    </div>
+                    <div class="form-group">
+                        <label for="aiSteps">AI Suggested Steps (Editable):</label>
+                        <textarea id="aiSteps" name="aiSteps" rows="5"></textarea>
+                    </div>
+                    <p class="ai-disclaimer">Review and edit AI suggestions before submitting.</p>
+                </div>
+            </div>
+
+            <button id="submitJiraButton" class="btn btn-submit" disabled>Submit to Jira</button>
+            <p id="submissionStatus"></p>
+        </div>
+
+        <footer>
+            <p><a href="#" id="optionsLink">Settings</a></p>
+        </footer>
+    </div>
+    <script src="popup.js"></script></body>
+</html>
