@@ -11,7 +11,8 @@
       "offscreen",
       "alarms",
       "desktopCapture",
-      "tabs"
+      "tabs",
+      "contextMenus"
     ],
     "host_permissions": [
       "<all_urls>",
@@ -19,8 +20,7 @@
       "https://generativelanguage.googleapis.com/*"
     ],
     "background": {
-      "service_worker": "service-worker.js",
-      "type": "module"
+      "service_worker": "service-worker.js"
     },
     "action": {
       "default_popup": "popup/popup.html",
