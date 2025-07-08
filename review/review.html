@@ -1,0 +1,334 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Bug Report Review - Advanced Bug Reporter Pro</title>
+    <link rel="stylesheet" href="review.css">
+    <link rel="stylesheet" href="../libs/rrweb-player.min.css">
+</head>
+<body>
+    <div class="app">
+        <!-- Header -->
+        <header class="app-header">
+            <div class="header-left">
+                <div class="logo">
+                    <svg width="28" height="28" viewBox="0 0 24 24" fill="none">
+                        <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        <path d="M2 17L12 22L22 17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        <path d="M2 12L12 17L22 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                </div>
+                <div>
+                    <h1>Bug Report Review</h1>
+                    <p class="recording-date" id="recordingDate">Recording from <span></span></p>
+                </div>
+            </div>
+            <div class="header-actions">
+                <button class="btn btn-secondary" id="downloadBtn">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                        <path d="M21 15V19C21 20.1 20.1 21 19 21H5C3.9 21 3 20.1 3 19V15" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        <path d="M7 10L12 15L17 10" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        <path d="M12 15V3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    Download All
+                </button>
+                <button class="btn btn-primary" id="createJiraBtn">
+                    <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                        <path d="M12 2L2 19H22L12 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                    </svg>
+                    Create Jira Ticket
+                </button>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <div class="app-content">
+            <!-- Sidebar -->
+            <aside class="sidebar">
+                <nav class="sidebar-nav">
+                    <button class="nav-item active" data-panel="player">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                            <polygon points="5 3 19 12 5 21 5 3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                        <span>Player</span>
+                    </button>
+                    <button class="nav-item" data-panel="console">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                            <polyline points="4 17 10 11 4 5" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            <line x1="12" y1="19" x2="20" y2="19" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                        <span>Console Logs</span>
+                        <span class="badge" id="consoleCount">0</span>
+                    </button>
+                    <button class="nav-item" data-panel="network">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                            <path d="M22 12H18L15 21L9 3L6 12H2" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                        <span>Network</span>
+                        <span class="badge" id="networkCount">0</span>
+                    </button>
+                    <button class="nav-item" data-panel="summary">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                            <path d="M14 2H6C5.46957 2 4.96086 2.21071 4.58579 2.58579C4.21071 2.96086 4 3.46957 4 4V20C4 20.5304 4.21071 21.0391 4.58579 21.4142C4.96086 21.7893 5.46957 22 6 22H18C18.5304 22 19.0391 21.7893 19.4142 21.4142C19.7893 21.0391 20 20.5304 20 20V8L14 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            <path d="M14 2V8H20" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            <line x1="16" y1="13" x2="8" y2="13" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            <line x1="16" y1="17" x2="8" y2="17" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                        <span>Summary</span>
+                    </button>
+                    <button class="nav-item" data-panel="timeline">
+                        <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                            <line x1="12" y1="2" x2="12" y2="6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            <line x1="12" y1="18" x2="12" y2="22" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            <line x1="4.93" y1="4.93" x2="7.76" y2="7.76" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            <line x1="16.24" y1="16.24" x2="19.07" y2="19.07" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            <line x1="2" y1="12" x2="6" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            <line x1="18" y1="12" x2="22" y2="12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            <line x1="4.93" y1="19.07" x2="7.76" y2="16.24" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            <line x1="16.24" y1="7.76" x2="19.07" y2="4.93" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                        </svg>
+                        <span>Timeline</span>
+                    </button>
+                </nav>
+            </aside>
+
+            <!-- Main Panel -->
+            <main class="main-panel">
+                <!-- Player Panel -->
+                <div id="playerPanel" class="panel active">
+                    <div class="panel-header">
+                        <h2>Recording Playback</h2>
+                        <div class="player-tabs">
+                            <button class="tab-btn active" data-player="video" id="videoTab">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                                    <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18" stroke="currentColor" stroke-width="2"/>
+                                    <line x1="7" y1="2" x2="7" y2="22" stroke="currentColor" stroke-width="2"/>
+                                    <line x1="17" y1="2" x2="17" y2="22" stroke="currentColor" stroke-width="2"/>
+                                    <line x1="2" y1="12" x2="22" y2="12" stroke="currentColor" stroke-width="2"/>
+                                </svg>
+                                Video
+                            </button>
+                            <button class="tab-btn" data-player="dom" id="domTab">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                                    <polyline points="16 18 22 12 16 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                    <polyline points="8 6 2 12 8 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                                DOM
+                            </button>
+                        </div>
+                    </div>
+                    <div class="player-container">
+                        <div id="videoPlayer" class="player-content active">
+                            <video id="recordingVideo" controls></video>
+                            <div id="noVideoMessage" class="empty-state" style="display: none;">
+                                <svg width="48" height="48" viewBox="0 0 24 24" fill="none">
+                                    <rect x="2" y="2" width="20" height="20" rx="2.18" ry="2.18" stroke="currentColor" stroke-width="2"/>
+                                    <line x1="1" y1="1" x2="23" y2="23" stroke="currentColor" stroke-width="2"/>
+                                </svg>
+                                <p>No video recording available</p>
+                            </div>
+                        </div>
+                        <div id="domPlayer" class="player-content">
+                            <div id="rrwebPlayer"></div>
+                            <div id="noDomMessage" class="empty-state" style="display: none;">
+                                <svg width="48" height="48" viewBox="0 0 24 24" fill="none">
+                                    <polyline points="16 18 22 12 16 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                    <polyline points="8 6 2 12 8 18" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                                </svg>
+                                <p>No DOM recording available</p>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Console Panel -->
+                <div id="consolePanel" class="panel">
+                    <div class="panel-header">
+                        <h2>Console Logs</h2>
+                        <div class="panel-actions">
+                            <input type="text" class="search-input" placeholder="Search logs..." id="consoleSearch">
+                            <select class="filter-select" id="consoleFilter">
+                                <option value="all">All Levels</option>
+                                <option value="error">Errors</option>
+                                <option value="warn">Warnings</option>
+                                <option value="info">Info</option>
+                                <option value="log">Logs</option>
+                            </select>
+                            <button class="btn btn-sm" id="clearConsoleFilter">Clear</button>
+                            <button class="btn btn-sm" id="exportConsole">Export</button>
+                        </div>
+                    </div>
+                    <div class="logs-container" id="consoleLogs">
+                        <!-- Console logs will be populated here -->
+                    </div>
+                </div>
+
+                <!-- Network Panel -->
+                <div id="networkPanel" class="panel">
+                    <div class="panel-header">
+                        <h2>Network Activity</h2>
+                        <div class="panel-actions">
+                            <input type="text" class="search-input" placeholder="Search requests..." id="networkSearch">
+                            <select class="filter-select" id="networkFilter">
+                                <option value="all">All Types</option>
+                                <option value="xhr">XHR</option>
+                                <option value="fetch">Fetch</option>
+                                <option value="document">Document</option>
+                                <option value="css">CSS</option>
+                                <option value="js">JS</option>
+                                <option value="img">Images</option>
+                                <option value="failed">Failed</option>
+                            </select>
+                            <button class="btn btn-sm" id="exportNetwork">Export HAR</button>
+                        </div>
+                    </div>
+                    <div class="network-container">
+                        <table class="network-table">
+                            <thead>
+                                <tr>
+                                    <th>Status</th>
+                                    <th>Method</th>
+                                    <th>URL</th>
+                                    <th>Type</th>
+                                    <th>Size</th>
+                                    <th>Time</th>
+                                </tr>
+                            </thead>
+                            <tbody id="networkRequests">
+                                <!-- Network requests will be populated here -->
+                            </tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Summary Panel -->
+                <div id="summaryPanel" class="panel">
+                    <div class="panel-header">
+                        <h2>Bug Summary</h2>
+                        <button class="btn btn-primary" id="generateAiSummary">
+                            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                                <path d="M12 2L2 7V17C2 19.21 3.79 21 6 21H18C20.21 21 22 19.21 22 17V7L12 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                            </svg>
+                            Generate AI Summary
+                        </button>
+                    </div>
+                    <div class="summary-content">
+                        <div class="form-group">
+                            <label for="bugTitle">Bug Title</label>
+                            <input type="text" id="bugTitle" class="form-input" placeholder="Enter a concise bug title...">
+                        </div>
+                        <div class="form-group">
+                            <label for="bugDescription">Description</label>
+                            <textarea id="bugDescription" class="form-textarea" rows="4" placeholder="Describe the bug..."></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label for="stepsToReproduce">Steps to Reproduce</label>
+                            <textarea id="stepsToReproduce" class="form-textarea" rows="6" placeholder="1. Navigate to...&#10;2. Click on...&#10;3. Observe that..."></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label for="expectedBehavior">Expected Behavior</label>
+                            <textarea id="expectedBehavior" class="form-textarea" rows="3" placeholder="What should happen..."></textarea>
+                        </div>
+                        <div class="form-group">
+                            <label for="actualBehavior">Actual Behavior</label>
+                            <textarea id="actualBehavior" class="form-textarea" rows="3" placeholder="What actually happens..."></textarea>
+                        </div>
+                        <div class="ai-suggestions" id="aiSuggestions" style="display: none;">
+                            <h3>AI Suggestions</h3>
+                            <div class="suggestion-content" id="suggestionContent">
+                                <!-- AI suggestions will appear here -->
+                            </div>
+                            <div class="suggestion-actions">
+                                <button class="btn btn-sm btn-primary" id="applyAiSuggestions">Apply Suggestions</button>
+                                <button class="btn btn-sm" id="dismissAiSuggestions">Dismiss</button>
+                            </div>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Timeline Panel -->
+                <div id="timelinePanel" class="panel">
+                    <div class="panel-header">
+                        <h2>Event Timeline</h2>
+                        <div class="timeline-controls">
+                            <button class="btn btn-sm" id="timelineZoomIn">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                                    <circle cx="11" cy="11" r="8" stroke="currentColor" stroke-width="2"/>
+                                    <path d="M21 21L16.65 16.65" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                    <line x1="11" y1="8" x2="11" y2="14" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                    <line x1="8" y1="11" x2="14" y2="11" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                </svg>
+                            </button>
+                            <button class="btn btn-sm" id="timelineZoomOut">
+                                <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                                    <circle cx="11" cy="11" r="8" stroke="currentColor" stroke-width="2"/>
+                                    <path d="M21 21L16.65 16.65" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                    <line x1="8" y1="11" x2="14" y2="11" stroke="currentColor" stroke-width="2" stroke-linecap="round"/>
+                                </svg>
+                            </button>
+                        </div>
+                    </div>
+                    <div class="timeline-container" id="timelineContainer">
+                        <!-- Timeline visualization will be rendered here -->
+                    </div>
+                </div>
+            </main>
+        </div>
+
+        <!-- Jira Modal -->
+        <div id="jiraModal" class="modal">
+            <div class="modal-content">
+                <div class="modal-header">
+                    <h2>Create Jira Ticket</h2>
+                    <button class="close-btn" id="closeJiraModal">&times;</button>
+                </div>
+                <div class="modal-body">
+                    <div class="form-group">
+                        <label for="jiraProject">Project</label>
+                        <select id="jiraProject" class="form-select">
+                            <option value="">Loading projects...</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="jiraIssueType">Issue Type</label>
+                        <select id="jiraIssueType" class="form-select">
+                            <option value="">Select project first...</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label>Attachments</label>
+                        <div class="attachment-options">
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="attachVideo" checked>
+                                <span>Video Recording</span>
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="attachLogs" checked>
+                                <span>Console & Network Logs</span>
+                            </label>
+                            <label class="checkbox-label">
+                                <input type="checkbox" id="attachDom" checked>
+                                <span>DOM Recording</span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+                <div class="modal-footer">
+                    <button class="btn" id="cancelJiraSubmit">Cancel</button>
+                    <button class="btn btn-primary" id="submitJiraTicket">Create Ticket</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Loading Overlay -->
+    <div id="loadingOverlay" class="loading-overlay">
+        <div class="spinner"></div>
+        <p id="loadingMessage">Loading recording data...</p>
+    </div>
+
+    <script src="../libs/rrweb-player.min.js"></script>
+    <script src="review.js" type="module"></script>
+</body>
+</html>
