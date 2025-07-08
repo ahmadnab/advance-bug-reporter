@@ -1,390 +1,390 @@
-// popup/popup.js
+// popup/popup.js - Enhanced with modern features
 document.addEventListener('DOMContentLoaded', () => {
     // DOM Elements
-    const toggleRecordButton = document.getElementById('toggleRecordButton');
+    const statusSection = document.getElementById('status-section');
+    const statusDot = document.getElementById('statusDot');
+    const statusText = document.getElementById('statusText');
     const statusMessage = document.getElementById('statusMessage');
-    const bugForm = document.getElementById('bug-form');
-
-    // Jira dynamic fields
-    const jiraProjectSelect = document.getElementById('jiraProject');
-    const jiraIssueTypeSelect = document.getElementById('jiraIssueType');
-    const jiraProjectLoader = document.getElementById('jiraProjectLoader');
-    const jiraIssueTypeLoader = document.getElementById('jiraIssueTypeLoader');
-
-    const bugSummaryInput = document.getElementById('bugSummary');
-    const bugDescriptionInput = document.getElementById('bugDescription');
-    const generateAIButton = document.getElementById('generateAIButton');
-    const aiSuggestionsDiv = document.getElementById('ai-suggestions');
-    const aiSummaryInput = document.getElementById('aiSummary');
-    const aiStepsInput = document.getElementById('aiSteps');
-    const submitJiraButton = document.getElementById('submitJiraButton');
-    const submissionStatus = document.getElementById('submissionStatus');
-    const optionsLink = document.getElementById('optionsLink');
-    const errorMessageContainer = document.getElementById('error-message-container');
-    const errorMessageElement = document.getElementById('errorMessage');
-
-    let currentJiraProjects = [];
-    let currentJiraIssueTypes = [];
-
-    // --- Utility Functions ---
-    function showGeneralError(message, permanent = false) {
-        errorMessageElement.textContent = message;
-        errorMessageContainer.style.display = 'block';
-        if (!permanent) {
-            setTimeout(() => {
-                errorMessageContainer.style.display = 'none';
-            }, 7000); // Increased display time for errors
-        }
-    }
-
-    function updateButtonState(button, text, disabled) {
-        if (button) {
-            button.textContent = text;
-            button.disabled = disabled;
-        }
-    }
-
-    function checkSubmitButtonState() {
-        const projectSelected = jiraProjectSelect.value && jiraProjectSelect.value !== "";
-        const issueTypeSelected = jiraIssueTypeSelect.value && jiraIssueTypeSelect.value !== "";
-        const summaryProvided = bugSummaryInput.value.trim() !== "";
-        submitJiraButton.disabled = !(projectSelected && issueTypeSelected && summaryProvided);
-    }
-
-    // --- Jira Dropdown Functions ---
-    function populateProjectsDropdown(projects) {
-        currentJiraProjects = projects || [];
-        jiraProjectSelect.innerHTML = ''; // Clear existing options
-
-        if (!currentJiraProjects || currentJiraProjects.length === 0) {
-            const option = new Option('No projects found or Jira not configured.', '');
-            jiraProjectSelect.add(option);
-            jiraProjectSelect.disabled = true;
-            showGeneralError('No Jira projects found. Please check Jira configuration in Options.', true);
-            return;
-        }
-
-        jiraProjectSelect.add(new Option('Select a project...', ''));
-        currentJiraProjects.forEach(project => {
-            // Ensure project.name and project.key exist
-            if (project && project.name && project.key) {
-                 const option = new Option(`${project.name} (${project.key})`, project.key);
-                 jiraProjectSelect.add(option);
-            } else {
-                console.warn("Skipping project due to missing name or key:", project);
-            }
-        });
-        jiraProjectSelect.disabled = false;
-        checkSubmitButtonState();
-    }
-
-    function populateIssueTypesDropdown(issueTypes) {
-        currentJiraIssueTypes = issueTypes || [];
-        jiraIssueTypeSelect.innerHTML = ''; // Clear existing options
-
-        if (!currentJiraIssueTypes || currentJiraIssueTypes.length === 0) {
-            const option = new Option('No issue types found for this project.', '');
-            jiraIssueTypeSelect.add(option);
-            jiraIssueTypeSelect.disabled = true;
-            return;
-        }
-
-        jiraIssueTypeSelect.add(new Option('Select an issue type...', ''));
-        currentJiraIssueTypes.forEach(issueType => {
-            // Ensure issueType.name exists
-            if (issueType && issueType.name) {
-                const option = new Option(issueType.name, issueType.name); // Using name as value for simplicity
-                jiraIssueTypeSelect.add(option);
-            } else {
-                console.warn("Skipping issue type due to missing name:", issueType);
-            }
-        });
-        jiraIssueTypeSelect.disabled = false;
-        checkSubmitButtonState();
-    }
-
-    async function fetchJiraProjects() {
-        jiraProjectLoader.style.display = 'inline';
-        jiraProjectSelect.disabled = true;
-        jiraIssueTypeSelect.innerHTML = '<option value="">Select a project first...</option>';
-        jiraIssueTypeSelect.disabled = true;
-
-        chrome.runtime.sendMessage({ type: 'FETCH_JIRA_PROJECTS' }, (response) => {
-            jiraProjectLoader.style.display = 'none';
-            if (chrome.runtime.lastError || !response || !response.success) {
-                const errorMsg = (response && response.error) || chrome.runtime.lastError?.message || 'Failed to fetch Jira projects.';
-                showGeneralError(errorMsg, true); // Keep error visible
-                populateProjectsDropdown([]); // Show no projects
-                console.error('Error fetching Jira projects:', errorMsg);
-            } else {
-                populateProjectsDropdown(response.projects);
-            }
-        });
-    }
-
-    async function fetchJiraIssueTypes(projectKey) {
-        if (!projectKey) {
-            jiraIssueTypeSelect.innerHTML = '<option value="">Select a project first...</option>';
-            jiraIssueTypeSelect.disabled = true;
-            currentJiraIssueTypes = [];
-            checkSubmitButtonState();
-            return;
-        }
-        jiraIssueTypeLoader.style.display = 'inline';
-        jiraIssueTypeSelect.disabled = true;
-        jiraIssueTypeSelect.innerHTML = '<option value="">Loading issue types...</option>';
-
-
-        chrome.runtime.sendMessage({ type: 'FETCH_JIRA_ISSUE_TYPES', payload: { projectKey } }, (response) => {
-            jiraIssueTypeLoader.style.display = 'none';
-            if (chrome.runtime.lastError || !response || !response.success) {
-                const errorMsg = (response && response.error) || chrome.runtime.lastError?.message || 'Failed to fetch Jira issue types.';
-                showGeneralError(errorMsg);
-                populateIssueTypesDropdown([]); // Show no issue types
-                console.error(`Error fetching Jira issue types for ${projectKey}:`, errorMsg);
-            } else {
-                populateIssueTypesDropdown(response.issueTypes);
-            }
-        });
-    }
-
-    // --- UI Update Functions ---
-    function updateRecordingUI(isRecording, hasRecordedData, error = null) {
-        // *** ADDED LOGGING ***
-        console.log(`[Popup] updateRecordingUI called. isRecording: ${isRecording}, hasRecordedData: ${hasRecordedData}, error: ${error}`);
-
-        if (error) {
-            statusMessage.textContent = `Error: ${error}`;
-            statusMessage.style.color = 'red';
-        } else {
-            statusMessage.style.color = '#555';
-            statusMessage.textContent = isRecording ? 'Status: Recording...' : (hasRecordedData ? 'Status: Recording stopped. Fill details.' : 'Status: Idle');
-        }
-
-        toggleRecordButton.textContent = isRecording ? 'Stop Recording' : 'Start Recording';
-        toggleRecordButton.disabled = false;
-
-        if (isRecording) {
-            bugForm.style.display = 'none';
-            aiSuggestionsDiv.style.display = 'none';
-        } else {
-            // *** Check the condition here ***
-            if (hasRecordedData) {
-                console.log("[Popup] 'hasRecordedData' is true, showing bug form.");
-                bugForm.style.display = 'block';
-                generateAIButton.disabled = !(bugSummaryInput.value.trim() || bugDescriptionInput.value.trim());
-                // Fetch projects only if the form is being newly displayed
-                // Check if projects dropdown is already populated or loading to avoid redundant calls
-                if (jiraProjectSelect.options.length <= 1 || jiraProjectSelect.options[0].value === "") {
-                     fetchJiraProjects();
-                }
-            } else {
-                console.log("[Popup] 'hasRecordedData' is false, hiding bug form.");
-                bugForm.style.display = 'none';
-            }
-        }
-        checkSubmitButtonState(); // Always check submit button state
-    }
-
-    // --- Event Listeners ---
-    toggleRecordButton.addEventListener('click', async () => {
-        updateButtonState(toggleRecordButton, 'Processing...', true);
+    const errorContainer = document.getElementById('error-message-container');
+    const errorMessage = document.getElementById('errorMessage');
+    
+    const recordingOptions = document.getElementById('recording-options');
+    const toggleRecordButton = document.getElementById('toggleRecordButton');
+    const recordingTimer = document.getElementById('recordingTimer');
+    const timerDisplay = document.getElementById('timerDisplay');
+    
+    const recentRecordingsSection = document.getElementById('recent-recordings');
+    const recordingsList = document.getElementById('recordingsList');
+    
+    const settingsBtn = document.getElementById('settingsBtn');
+    const viewAllRecordings = document.getElementById('viewAllRecordings');
+    const helpLink = document.getElementById('helpLink');
+    
+    // State
+    let isRecording = false;
+    let recordingInterval = null;
+    let recordingStartTime = null;
+    
+    // Initialize
+    init();
+    
+    async function init() {
         try {
-            // Use sendMessage with callback for state consistency
-            chrome.runtime.sendMessage({ type: 'GET_RECORDING_STATE' }, (state) => {
-                 if (chrome.runtime.lastError) {
-                    throw new Error(chrome.runtime.lastError.message || "Communication error.");
-                 }
-                 if (!state) {
-                    throw new Error("Invalid state received from service worker.");
-                 }
-
-                if (state.isRecording) {
-                    // Send STOP_RECORDING message
-                    chrome.runtime.sendMessage({ type: 'STOP_RECORDING' }, (response) => {
-                        if (chrome.runtime.lastError || !response || !response.success) {
-                            const errorMsg = (response && response.error) || chrome.runtime.lastError?.message || 'Failed to stop.';
-                            showGeneralError(errorMsg);
-                            updateRecordingUI(true, state.hasRecordedData); // Revert UI
-                        } else {
-                            // Update UI immediately, assuming data *will* be available
-                            // The RECORDING_STATE_UPDATED message will provide the final confirmation
-                            updateRecordingUI(false, true); // Optimistically assume data exists
-                        }
-                        toggleRecordButton.disabled = false;
-                    });
-                } else {
-                    // Send START_RECORDING message
-                    chrome.tabs.query({ active: true, currentWindow: true }).then(([activeTab]) => {
-                        if (!activeTab) {
-                             showGeneralError("No active tab found.");
-                             updateButtonState(toggleRecordButton, 'Start Recording', false); return;
-                        }
-                        if (activeTab.url.startsWith("chrome://")) {
-                             showGeneralError("Cannot record system pages.");
-                             updateButtonState(toggleRecordButton, 'Start Recording', false); return;
-                        }
-                        chrome.runtime.sendMessage({ type: 'START_RECORDING', tabId: activeTab.id }, (response) => {
-                            if (chrome.runtime.lastError || !response || !response.success) {
-                                const errorMsg = (response && response.error) || chrome.runtime.lastError?.message || 'Failed to start.';
-                                showGeneralError(errorMsg);
-                                updateRecordingUI(false, state.hasRecordedData);
-                            } else {
-                                updateRecordingUI(true, false);
-                            }
-                            toggleRecordButton.disabled = false;
-                        });
-                    }).catch(e => { // Catch error from chrome.tabs.query
-                         showGeneralError(`Error getting active tab: ${e.message}`);
-                         updateButtonState(toggleRecordButton, 'Start Recording', false);
-                    });
-                }
-            }); // End sendMessage callback for GET_RECORDING_STATE
-        } catch (e) { // Catch synchronous errors or errors from the sendMessage itself
-            showGeneralError(`Error: ${e.message}`);
-            // Attempt to reset UI based on potentially fetched state
-             chrome.runtime.sendMessage({ type: 'GET_RECORDING_STATE' }, (stateResponse) => {
-                 if (stateResponse) updateRecordingUI(stateResponse.isRecording, stateResponse.hasRecordedData);
-                 else updateRecordingUI(false, false); // Fallback
-             });
+            // Get current recording state
+            const state = await sendMessage('GET_RECORDING_STATE');
+            updateUI(state);
+            
+            // Load recent recordings
+            loadRecentRecordings();
+            
+            // Set up event listeners
+            setupEventListeners();
+            
+            // Listen for state updates
+            chrome.runtime.onMessage.addListener(handleMessage);
+        } catch (error) {
+            showError('Failed to initialize: ' + error.message);
         }
-    });
-
-    jiraProjectSelect.addEventListener('change', (event) => {
-        const selectedProjectKey = event.target.value;
-        fetchJiraIssueTypes(selectedProjectKey);
-        checkSubmitButtonState();
-    });
-
-    jiraIssueTypeSelect.addEventListener('change', checkSubmitButtonState);
-    bugSummaryInput.addEventListener('input', checkSubmitButtonState);
-
-
-    generateAIButton.addEventListener('click', () => {
-        const userSummary = bugSummaryInput.value.trim();
-        const userDescription = bugDescriptionInput.value.trim();
-
-        if (!userSummary && !userDescription) {
-            showGeneralError('Please provide a summary or description before generating AI suggestions.');
-            return;
-        }
-        updateButtonState(generateAIButton, 'Generating...', true);
-        submissionStatus.textContent = 'Requesting AI suggestions...';
-        aiSuggestionsDiv.style.display = 'none';
-
-        chrome.runtime.sendMessage({
-            type: 'GENERATE_AI_SUGGESTIONS',
-            payload: { summary: userSummary, description: userDescription }
-        }, (response) => {
-            updateButtonState(generateAIButton, 'Generate AI Suggestions', false);
-            submissionStatus.textContent = '';
-            if (chrome.runtime.lastError || !response || !response.success) {
-                const errorMsg = (response && response.error) || chrome.runtime.lastError?.message || 'AI suggestions failed.';
-                showGeneralError(errorMsg);
-                aiSummaryInput.value = ''; aiStepsInput.value = '';
-            } else {
-                aiSummaryInput.value = response.aiSummary || '';
-                aiStepsInput.value = response.aiSteps || '';
-                aiSuggestionsDiv.style.display = 'block';
-                submissionStatus.textContent = 'AI suggestions generated. Review and edit.';
-            }
+    }
+    
+    function setupEventListeners() {
+        // Recording button
+        toggleRecordButton.addEventListener('click', handleToggleRecording);
+        
+        // Settings button
+        settingsBtn.addEventListener('click', () => {
+            chrome.runtime.openOptionsPage();
         });
-    });
-
-    bugSummaryInput.addEventListener('input', () => {
-        generateAIButton.disabled = !(bugSummaryInput.value.trim() || bugDescriptionInput.value.trim());
-        checkSubmitButtonState();
-    });
-    bugDescriptionInput.addEventListener('input', () => {
-        generateAIButton.disabled = !(bugSummaryInput.value.trim() || bugDescriptionInput.value.trim());
-    });
-
-
-    submitJiraButton.addEventListener('click', () => {
-        const projectKey = jiraProjectSelect.value;
-        const issueTypeName = jiraIssueTypeSelect.value;
-        const summaryToSubmit = aiSummaryInput.value.trim() ? aiSummaryInput.value.trim() : bugSummaryInput.value.trim();
-        const descriptionToSubmit = aiStepsInput.value.trim() ? aiStepsInput.value.trim() : bugDescriptionInput.value.trim();
-
-        if (!projectKey || !issueTypeName || !summaryToSubmit) {
-            showGeneralError('Project, Issue Type, and Summary are required for Jira submission.');
-            return;
-        }
-
-        updateButtonState(submitJiraButton, 'Submitting...', true);
-        submissionStatus.textContent = 'Submitting to Jira...';
-
-        chrome.runtime.sendMessage({
-            type: 'SUBMIT_TO_JIRA',
-            payload: {
-                projectKey,
-                issueTypeName,
-                summary: summaryToSubmit,
-                description: descriptionToSubmit
-            }
-        }, (response) => {
-            updateButtonState(submitJiraButton, 'Submit to Jira', false); // Re-enable after attempt
-            if (chrome.runtime.lastError || !response || !response.success) {
-                const errorMsg = (response && response.error) || chrome.runtime.lastError?.message || 'Jira submission failed.';
-                showGeneralError(`Jira Submission Error: ${errorMsg}`);
-                submissionStatus.textContent = `Error: ${errorMsg}`;
-                submissionStatus.style.color = 'red';
-            } else {
-                submissionStatus.textContent = `Successfully created Jira issue: ${response.issueKey}`;
-                submissionStatus.style.color = 'green';
-                setTimeout(() => {
-                    // Reset form for next submission
-                    jiraProjectSelect.value = '';
-                    jiraIssueTypeSelect.innerHTML = '<option value="">Select a project first...</option>';
-                    jiraIssueTypeSelect.disabled = true;
-                    bugSummaryInput.value = '';
-                    bugDescriptionInput.value = '';
-                    aiSummaryInput.value = '';
-                    aiStepsInput.value = '';
-                    aiSuggestionsDiv.style.display = 'none';
-                    submissionStatus.textContent = '';
-                    // Reset UI state
-                    initializePopup();
-                }, 4000);
-            }
-            checkSubmitButtonState(); // Re-check after submission attempt
+        
+        // View all recordings
+        viewAllRecordings.addEventListener('click', (e) => {
+            e.preventDefault();
+            chrome.tabs.create({
+                url: chrome.runtime.getURL('review/recordings.html')
+            });
         });
-    });
-
-    optionsLink.addEventListener('click', (e) => {
-        e.preventDefault();
-        if (chrome.runtime.openOptionsPage) chrome.runtime.openOptionsPage();
-        else window.open(chrome.runtime.getURL('options/options.html'));
-    });
-
-    // --- Initialization ---
-    function initializePopup() {
-        updateButtonState(toggleRecordButton, 'Loading...', true);
-        chrome.runtime.sendMessage({ type: 'GET_RECORDING_STATE' }, (response) => {
-            if (chrome.runtime.lastError) {
-                showGeneralError('Error connecting to service worker. Try reloading extension.', true);
-                updateRecordingUI(false, false, "Connection error");
-                toggleRecordButton.disabled = true; return;
-            }
-            if (response) {
-                console.log("[Popup] Initial state received:", response); // Log initial state
-                updateRecordingUI(response.isRecording, response.hasRecordedData);
-                // No need to call fetchJiraProjects here, updateRecordingUI handles it
-            } else {
-                updateRecordingUI(false, false, "Could not get state");
-            }
-            toggleRecordButton.disabled = false;
-            checkSubmitButtonState();
+        
+        // Help link
+        helpLink.addEventListener('click', (e) => {
+            e.preventDefault();
+            chrome.tabs.create({
+                url: 'https://github.com/your-repo/advanced-bug-reporter/wiki'
+            });
+        });
+        
+        // Recording options
+        document.querySelectorAll('input[type="radio"], input[type="checkbox"]').forEach(input => {
+            input.addEventListener('change', updateRecordingOptions);
         });
     }
-
-    chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-        if (message.type === 'RECORDING_STATE_UPDATED') {
-             console.log("[Popup] Received RECORDING_STATE_UPDATED:", message.payload); // Log state update
-            updateRecordingUI(message.payload.isRecording, message.payload.hasRecordedData, message.payload.error);
-            // No need to call fetchJiraProjects here, updateRecordingUI handles it
+    
+    async function handleToggleRecording() {
+        if (isRecording) {
+            await stopRecording();
+        } else {
+            await startRecording();
         }
-    });
-
-    initializePopup();
+    }
+    
+    async function startRecording() {
+        try {
+            // Disable button during operation
+            toggleRecordButton.disabled = true;
+            toggleRecordButton.innerHTML = `
+                <div class="loading"></div>
+                Starting...
+            `;
+            
+            // Get current tab
+            const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
+            
+            if (!activeTab) {
+                throw new Error('No active tab found');
+            }
+            
+            if (activeTab.url.startsWith('chrome://')) {
+                throw new Error('Cannot record browser pages');
+            }
+            
+            // Get recording options
+            const options = {
+                captureMode: document.querySelector('input[name="captureMode"]:checked').value,
+                recordVideo: document.getElementById('recordVideo').checked,
+                recordDOM: document.getElementById('recordDOM').checked,
+                recordConsole: document.getElementById('recordConsole').checked,
+                recordNetwork: document.getElementById('recordNetwork').checked
+            };
+            
+            // Start recording
+            const response = await sendMessage('START_RECORDING', { 
+                tabId: activeTab.id, 
+                options 
+            });
+            
+            if (!response.success) {
+                throw new Error(response.error || 'Failed to start recording');
+            }
+            
+            // Update UI
+            isRecording = true;
+            recordingStartTime = Date.now();
+            updateRecordingUI(true);
+            startTimer();
+            
+        } catch (error) {
+            showError(error.message);
+            toggleRecordButton.disabled = false;
+            updateRecordingUI(false);
+        }
+    }
+    
+    async function stopRecording() {
+        try {
+            toggleRecordButton.disabled = true;
+            toggleRecordButton.innerHTML = `
+                <div class="loading"></div>
+                Stopping...
+            `;
+            
+            const response = await sendMessage('STOP_RECORDING');
+            
+            if (!response.success) {
+                throw new Error(response.error || 'Failed to stop recording');
+            }
+            
+            // Update UI
+            isRecording = false;
+            updateRecordingUI(false);
+            stopTimer();
+            
+            // Show success message
+            statusMessage.textContent = 'Recording saved! Opening review page...';
+            
+        } catch (error) {
+            showError(error.message);
+            toggleRecordButton.disabled = false;
+        }
+    }
+    
+    function updateUI(state) {
+        isRecording = state.isRecording;
+        
+        if (state.isRecording) {
+            recordingStartTime = Date.now() - (state.recordingDuration || 0);
+            updateRecordingUI(true);
+            startTimer();
+        } else {
+            updateRecordingUI(false);
+        }
+        
+        // Update options if provided
+        if (state.options) {
+            const captureMode = document.querySelector(`input[name="captureMode"][value="${state.options.captureMode}"]`);
+            if (captureMode) captureMode.checked = true;
+            
+            document.getElementById('recordVideo').checked = state.options.recordVideo;
+            document.getElementById('recordDOM').checked = state.options.recordDOM;
+            document.getElementById('recordConsole').checked = state.options.recordConsole;
+            document.getElementById('recordNetwork').checked = state.options.recordNetwork;
+        }
+    }
+    
+    function updateRecordingUI(recording) {
+        if (recording) {
+            statusDot.classList.add('recording');
+            statusText.textContent = 'Recording';
+            statusMessage.textContent = 'Recording in progress...';
+            
+            toggleRecordButton.classList.add('recording');
+            toggleRecordButton.innerHTML = `
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                    <rect x="6" y="6" width="12" height="12" rx="2" fill="currentColor"/>
+                </svg>
+                Stop Recording
+            `;
+            
+            recordingOptions.style.opacity = '0.5';
+            recordingOptions.style.pointerEvents = 'none';
+            
+            recordingTimer.style.display = 'flex';
+        } else {
+            statusDot.classList.remove('recording');
+            statusText.textContent = 'Ready to Record';
+            statusMessage.textContent = 'Choose your recording options below';
+            
+            toggleRecordButton.classList.remove('recording');
+            toggleRecordButton.innerHTML = `
+                <svg width="20" height="20" viewBox="0 0 24 24" fill="none">
+                    <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/>
+                    <circle cx="12" cy="12" r="3" fill="currentColor"/>
+                </svg>
+                Start Recording
+            `;
+            
+            recordingOptions.style.opacity = '1';
+            recordingOptions.style.pointerEvents = 'auto';
+            
+            recordingTimer.style.display = 'none';
+        }
+        
+        toggleRecordButton.disabled = false;
+    }
+    
+    function startTimer() {
+        if (recordingInterval) clearInterval(recordingInterval);
+        
+        recordingInterval = setInterval(() => {
+            const elapsed = Date.now() - recordingStartTime;
+            const minutes = Math.floor(elapsed / 60000);
+            const seconds = Math.floor((elapsed % 60000) / 1000);
+            timerDisplay.textContent = `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
+        }, 1000);
+    }
+    
+    function stopTimer() {
+        if (recordingInterval) {
+            clearInterval(recordingInterval);
+            recordingInterval = null;
+        }
+        timerDisplay.textContent = '00:00';
+    }
+    
+    async function loadRecentRecordings() {
+        try {
+            const response = await sendMessage('GET_RECENT_RECORDINGS');
+            
+            if (!response.success || !response.recordings || response.recordings.length === 0) {
+                recentRecordingsSection.style.display = 'none';
+                return;
+            }
+            
+            recentRecordingsSection.style.display = 'block';
+            recordingsList.innerHTML = '';
+            
+            // Show only the 3 most recent recordings
+            response.recordings.slice(0, 3).forEach(recording => {
+                const item = createRecordingItem(recording);
+                recordingsList.appendChild(item);
+            });
+            
+        } catch (error) {
+            console.error('Failed to load recent recordings:', error);
+            recentRecordingsSection.style.display = 'none';
+        }
+    }
+    
+    function createRecordingItem(recording) {
+        const item = document.createElement('div');
+        item.className = 'recording-item';
+        item.dataset.recordingId = recording.id;
+        
+        const date = new Date(recording.timestamp);
+        const timeAgo = getTimeAgo(date);
+        const duration = formatDuration(recording.duration);
+        
+        item.innerHTML = `
+            <div class="recording-icon">
+                <svg width="24" height="24" viewBox="0 0 24 24" fill="none">
+                    <path d="M12 2L2 7L12 12L22 7L12 2Z" stroke="currentColor" stroke-width="2"/>
+                    <path d="M2 17L12 22L22 17" stroke="currentColor" stroke-width="2"/>
+                    <path d="M2 12L12 17L22 12" stroke="currentColor" stroke-width="2"/>
+                </svg>
+            </div>
+            <div class="recording-info">
+                <div class="recording-title">${escapeHtml(recording.pageTitle || 'Untitled Recording')}</div>
+                <div class="recording-meta">${timeAgo} · ${duration} · ${recording.consoleLogs} logs</div>
+            </div>
+        `;
+        
+        item.addEventListener('click', () => openRecording(recording.id));
+        
+        return item;
+    }
+    
+    function openRecording(recordingId) {
+        sendMessage('OPEN_RECORDING', { recordingId });
+    }
+    
+    function updateRecordingOptions() {
+        // This could be used to save preferences or validate options
+        const videoChecked = document.getElementById('recordVideo').checked;
+        const domChecked = document.getElementById('recordDOM').checked;
+        
+        // Ensure at least one recording method is selected
+        if (!videoChecked && !domChecked) {
+            document.getElementById('recordVideo').checked = true;
+            showError('At least one recording method must be selected');
+        }
+    }
+    
+    function handleMessage(message) {
+        switch (message.type) {
+            case 'RECORDING_STARTED':
+                isRecording = true;
+                recordingStartTime = Date.now();
+                updateRecordingUI(true);
+                startTimer();
+                break;
+                
+            case 'RECORDING_STOPPED':
+                isRecording = false;
+                updateRecordingUI(false);
+                stopTimer();
+                if (!message.payload.error) {
+                    // Reload recent recordings
+                    loadRecentRecordings();
+                }
+                break;
+                
+            case 'RECORDING_STATE_UPDATED':
+                updateUI(message.payload);
+                break;
+        }
+    }
+    
+    // Utility functions
+    function sendMessage(type, payload = {}) {
+        return new Promise((resolve, reject) => {
+            chrome.runtime.sendMessage({ type, ...payload }, response => {
+                if (chrome.runtime.lastError) {
+                    reject(new Error(chrome.runtime.lastError.message));
+                } else {
+                    resolve(response);
+                }
+            });
+        });
+    }
+    
+    function showError(message, duration = 5000) {
+        errorMessage.textContent = message;
+        errorContainer.style.display = 'flex';
+        
+        setTimeout(() => {
+            errorContainer.style.display = 'none';
+        }, duration);
+    }
+    
+    function getTimeAgo(date) {
+        const seconds = Math.floor((new Date() - date) / 1000);
+        
+        if (seconds < 60) return 'just now';
+        if (seconds < 3600) return `${Math.floor(seconds / 60)}m ago`;
+        if (seconds < 86400) return `${Math.floor(seconds / 3600)}h ago`;
+        return `${Math.floor(seconds / 86400)}d ago`;
+    }
+    
+    function formatDuration(ms) {
+        const seconds = Math.floor(ms / 1000);
+        const minutes = Math.floor(seconds / 60);
+        const remainingSeconds = seconds % 60;
+        
+        if (minutes === 0) return `${seconds}s`;
+        return `${minutes}m ${remainingSeconds}s`;
+    }
+    
+    function escapeHtml(text) {
+        const div = document.createElement('div');
+        div.textContent = text;
+        return div.innerHTML;
+    }
 });

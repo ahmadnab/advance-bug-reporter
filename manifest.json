@@ -1,15 +1,17 @@
 {
     "manifest_version": 3,
-    "name": "Advanced Bug Reporter",
-    "version": "1.0.0",
-    "description": "Records screen, console logs, and network requests for streamlined bug reporting to Jira, with AI assistance.",
+    "name": "Advanced Bug Reporter Pro",
+    "version": "2.0.0",
+    "description": "Professional bug reporting with screen/DOM recording, console/network logging, and Jira integration.",
     "permissions": [
       "storage",
       "tabCapture",
       "scripting",
       "debugger",
       "offscreen",
-      "alarms"
+      "alarms",
+      "desktopCapture",
+      "tabs"
     ],
     "host_permissions": [
       "<all_urls>",
@@ -42,9 +44,15 @@
     },
     "web_accessible_resources": [
       {
-        "resources": ["offscreen/offscreen.html"],
+        "resources": [
+          "offscreen/offscreen.html",
+          "libs/rrweb.min.js",
+          "libs/rrweb-player.min.js",
+          "review/review.html",
+          "review/review.css",
+          "review/review.js"
+        ],
         "matches": ["<all_urls>"]
       }
     ]
   }
-  

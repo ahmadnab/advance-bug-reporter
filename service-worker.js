@@ -1,4 +1,4 @@
-// service-worker.js
+// service-worker.js - Enhanced with rrweb and improved architecture
 
 // Import helper modules
 import * as jiraApi from './utils/jiraApi.js';
@@ -7,495 +7,524 @@ import * as storageHelper from './utils/storageHelper.js';
 import * as logFormatter from './utils/logFormatter.js';
 import * as zipHelper from './utils/zipHelper.js';
 
-// --- Global State Variables ---
+// --- Recording Storage ---
+class RecordingStorage {
+  static async saveRecording(recording) {
+    const recordings = await this.getAllRecordings();
+    recordings.unshift(recording); // Add to beginning
+    
+    // Keep only last 10 recordings
+    if (recordings.length > 10) {
+      recordings.length = 10;
+    }
+    
+    await chrome.storage.local.set({ recordings });
+    return recording.id;
+  }
+  
+  static async getAllRecordings() {
+    const result = await chrome.storage.local.get('recordings');
+    return result.recordings || [];
+  }
+  
+  static async getRecording(id) {
+    const recordings = await this.getAllRecordings();
+    return recordings.find(r => r.id === id);
+  }
+  
+  static async deleteRecording(id) {
+    const recordings = await this.getAllRecordings();
+    const filtered = recordings.filter(r => r.id !== id);
+    await chrome.storage.local.set({ recordings: filtered });
+  }
+}
+
+// --- Enhanced Recording State ---
 let recordingState = {
   isRecording: false,
+  recordingStartTime: null,
   activeTabId: null,
   streamId: null,
-  // mediaRecorder managed by offscreen document
+  
+  // Recording options
+  captureMode: 'tab', // 'tab', 'window', 'screen'
+  recordVideo: true,
+  recordDOM: true,
+  recordConsole: true,
+  recordNetwork: true,
+  
+  // Captured data
   consoleLogs: [],
   networkLogs: [],
-  videoBlob: null, // This will hold the reconstructed Blob
-  userBugSummary: '', // User's text from popup
-  userBugDescription: '', // User's text from popup
-  // AI suggestions are handled transiently or stored if needed for review
-  jiraIssueKey: null,
+  domEvents: [], // rrweb events
+  videoBlob: null,
+  
+  // Metadata
+  pageUrl: '',
+  pageTitle: '',
+  userAgent: '',
+  screenResolution: '',
+  
+  // Processing flags
   offscreenDocumentCreated: false,
-  // Flag to track if stop process is waiting for video data
-  isWaitingForVideoData: false
+  isWaitingForVideoData: false,
+  rrwebScriptInjected: false
 };
 
 // --- Event Listeners ---
 chrome.runtime.onInstalled.addListener(() => {
-  console.log('Advanced Bug Reporter extension installed/updated.');
-  // Initialize default settings if not already set
-  storageHelper.getJiraCredentials().then(creds => {
-    if (!creds) {
-      storageHelper.saveJiraCredentials({ baseUrl: '', email: '', apiToken: '', projectKey: '' });
+  console.log('Advanced Bug Reporter Pro installed/updated.');
+  
+  // Initialize settings
+  chrome.storage.local.get(['jiraBaseUrl', 'aiApiKey'], (items) => {
+    if (!items.jiraBaseUrl) {
+      chrome.storage.local.set({
+        jiraBaseUrl: '',
+        jiraEmail: '',
+        jiraApiToken: '',
+        jiraProjectKey: ''
+      });
+    }
+    if (!items.aiApiKey) {
+      chrome.storage.local.set({ aiApiKey: '' });
     }
   });
-  storageHelper.getAiApiKey().then(key => {
-    if (key === null) {
-        storageHelper.saveAiApiKey('');
-    }
+  
+  // Create context menu for quick recording
+  chrome.contextMenus.create({
+    id: 'quick-record',
+    title: 'Start Bug Recording',
+    contexts: ['page', 'selection', 'image', 'link']
   });
 });
 
+chrome.contextMenus.onClicked.addListener((info, tab) => {
+  if (info.menuItemId === 'quick-record' && tab) {
+    handleStartRecording(tab.id, { captureMode: 'tab' });
+  }
+});
+
+// Enhanced message handler
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
-  console.log('[ServiceWorker] Received message:', message.type, message.payload || '');
+  console.log('[ServiceWorker] Message received:', message.type);
+  
   switch (message.type) {
     case 'GET_RECORDING_STATE':
-      const hasDataNow = recordingState.videoBlob !== null || recordingState.consoleLogs.length > 0 || recordingState.networkLogs.length > 0;
-      console.log(`[ServiceWorker] GET_RECORDING_STATE check. isRecording: ${recordingState.isRecording}, hasDataNow: ${hasDataNow} (video: ${!!recordingState.videoBlob}, console: ${recordingState.consoleLogs.length}, network: ${recordingState.networkLogs.length})`);
       sendResponse({
         isRecording: recordingState.isRecording,
-        hasRecordedData: hasDataNow
+        hasRecordedData: hasRecordedData(),
+        recordingDuration: getRecordingDuration(),
+        options: {
+          captureMode: recordingState.captureMode,
+          recordVideo: recordingState.recordVideo,
+          recordDOM: recordingState.recordDOM,
+          recordConsole: recordingState.recordConsole,
+          recordNetwork: recordingState.recordNetwork
+        }
       });
       break;
+      
     case 'START_RECORDING':
-      handleStartRecording(message.tabId)
+      handleStartRecording(message.tabId, message.options)
         .then(() => sendResponse({ success: true }))
         .catch(error => {
-          console.error('[ServiceWorker] Error starting recording:', error);
-          sendResponse({ success: false, error: error.message });
-        });
-      return true; // Indicates asynchronous response
-    case 'STOP_RECORDING':
-      handleStopRecording() // No longer directly sends response based on completion
-        .then(() => {
-            // Acknowledge receipt of stop command, but actual state update happens later
-            sendResponse({ success: true, message: "Stop initiated, waiting for data processing." });
-        })
-        .catch(error => {
-          console.error('[ServiceWorker] Error initiating stop recording:', error);
-          sendResponse({ success: false, error: error.message });
-          // Attempt to reset state if stop initiation failed badly
-          recordingState.isRecording = false;
-          recordingState.isWaitingForVideoData = false;
-          chrome.action.setBadgeText({ text: '' });
-        });
-      return true; // Still async as handleStopRecording is async
-    case 'CONSOLE_LOG_CAPTURED': // *** ADDED LOGGING ***
-      if (recordingState.isRecording) {
-        console.log('[ServiceWorker] CONSOLE_LOG_CAPTURED received:', message.payload.level); // Log level only for brevity
-        recordingState.consoleLogs.push(message.payload);
-        console.log(`[ServiceWorker] consoleLogs count now: ${recordingState.consoleLogs.length}`); // Log count
-      } else {
-         console.log('[ServiceWorker] CONSOLE_LOG_CAPTURED received, but not recording. Discarding.');
-      }
-      break;
-    // --- Modified handler for video data ---
-    case 'VIDEO_BUFFER_READY':
-      console.log('[ServiceWorker] Received VIDEO_BUFFER_READY message.');
-      if (message.payload && message.payload.buffer instanceof ArrayBuffer && message.payload.mimeType) {
-        try {
-          // Reconstruct the Blob from the ArrayBuffer and MIME type
-          const reconstructedBlob = new Blob([message.payload.buffer], { type: message.payload.mimeType });
-          // *** ADDED LOGGING ***
-          if (reconstructedBlob && reconstructedBlob.size > 0) {
-              recordingState.videoBlob = reconstructedBlob;
-              console.log('[ServiceWorker] SUCCESS: Video blob reconstructed from ArrayBuffer. Size:', recordingState.videoBlob.size, 'Type:', recordingState.videoBlob.type);
-          } else {
-              console.error('[ServiceWorker] FAILED: Reconstructed Blob is invalid or empty.', reconstructedBlob);
-              recordingState.videoBlob = null;
-          }
-        } catch (error) {
-          console.error('[ServiceWorker] Error reconstructing Blob from ArrayBuffer:', error);
-          recordingState.videoBlob = null; // Ensure it's null on error
-        }
-      } else {
-        recordingState.videoBlob = null; // Ensure it's null if data is invalid
-        console.error('[ServiceWorker] VIDEO_BUFFER_READY received, but payload buffer/mimeType is invalid or missing.', message.payload);
-      }
-      // *** Send state update AFTER processing video data ***
-      if (recordingState.isWaitingForVideoData) {
-          sendFinalStopUpdate(null); // Send update, no specific error here
-          recordingState.isWaitingForVideoData = false; // Reset flag
-      }
-      closeOffscreenDocumentIfNeeded();
-      break;
-    // --- End of modified handler ---
-    case 'RECORDING_ERROR': // Error from offscreen doc
-      console.error('[ServiceWorker] Error during recording in offscreen document:', message.error);
-      recordingState.videoBlob = null; // Ensure video blob is null on error
-      // *** Send state update AFTER processing video error ***
-      if (recordingState.isWaitingForVideoData) {
-          sendFinalStopUpdate(`Offscreen recording error: ${message.error}`); // Send update with error reason
-          recordingState.isWaitingForVideoData = false; // Reset flag
-      }
-      // Don't call handleStopRecording again here, just update state
-      chrome.action.setBadgeText({ text: '' });
-      closeOffscreenDocumentIfNeeded();
-      // We don't sendResponse here as this message originates from offscreen, not popup
-      break;
-    case 'GENERATE_AI_SUGGESTIONS':
-      handleGenerateAISuggestions(message.payload.summary, message.payload.description)
-        .then(suggestions => sendResponse({ success: true, aiSummary: suggestions.summary, aiSteps: suggestions.steps }))
-        .catch(error => {
-          console.error('[ServiceWorker] Error generating AI suggestions:', error);
+          console.error('[ServiceWorker] Start recording error:', error);
           sendResponse({ success: false, error: error.message });
         });
       return true;
+      
+    case 'STOP_RECORDING':
+      handleStopRecording()
+        .then(() => sendResponse({ success: true }))
+        .catch(error => {
+          console.error('[ServiceWorker] Stop recording error:', error);
+          sendResponse({ success: false, error: error.message });
+        });
+      return true;
+      
+    case 'CONSOLE_LOG_CAPTURED':
+      if (recordingState.isRecording && recordingState.recordConsole) {
+        recordingState.consoleLogs.push({
+          ...message.payload,
+          relativeTime: Date.now() - recordingState.recordingStartTime
+        });
+      }
+      break;
+      
+    case 'RRWEB_EVENTS':
+      if (recordingState.isRecording && recordingState.recordDOM) {
+        recordingState.domEvents.push(...message.payload);
+      }
+      break;
+      
+    case 'VIDEO_BUFFER_READY':
+      handleVideoBufferReady(message.payload);
+      break;
+      
+    case 'RECORDING_ERROR':
+      handleRecordingError(message.error);
+      break;
+      
+    case 'GET_RECENT_RECORDINGS':
+      RecordingStorage.getAllRecordings()
+        .then(recordings => sendResponse({ success: true, recordings }))
+        .catch(error => sendResponse({ success: false, error: error.message }));
+      return true;
+      
+    case 'OPEN_RECORDING':
+      openRecordingReview(message.recordingId);
+      break;
+      
+    case 'DELETE_RECORDING':
+      RecordingStorage.deleteRecording(message.recordingId)
+        .then(() => sendResponse({ success: true }))
+        .catch(error => sendResponse({ success: false, error: error.message }));
+      return true;
+      
+    case 'GENERATE_AI_SUGGESTIONS':
+      handleGenerateAISuggestions(message.payload)
+        .then(suggestions => sendResponse({ success: true, ...suggestions }))
+        .catch(error => sendResponse({ success: false, error: error.message }));
+      return true;
+      
     case 'SUBMIT_TO_JIRA':
       handleSubmitToJira(message.payload)
         .then(issueKey => sendResponse({ success: true, issueKey }))
-        .catch(error => {
-          console.error('[ServiceWorker] Error submitting to Jira:', error);
-          const errorMessage = (error instanceof Error) ? error.message : String(error);
-          sendResponse({ success: false, error: errorMessage });
-        });
+        .catch(error => sendResponse({ success: false, error: error.message }));
       return true;
+      
     case 'FETCH_JIRA_PROJECTS':
       handleFetchJiraProjects()
         .then(projects => sendResponse({ success: true, projects }))
-        .catch(error => {
-            console.error('[ServiceWorker] Error fetching Jira projects:', error);
-            const errorMessage = (error instanceof Error) ? error.message : String(error);
-            sendResponse({ success: false, error: errorMessage });
-        });
+        .catch(error => sendResponse({ success: false, error: error.message }));
       return true;
+      
     case 'FETCH_JIRA_ISSUE_TYPES':
       handleFetchJiraIssueTypes(message.payload.projectKey)
         .then(issueTypes => sendResponse({ success: true, issueTypes }))
-        .catch(error => {
-            console.error('[ServiceWorker] Error fetching Jira issue types:', error);
-            const errorMessage = (error instanceof Error) ? error.message : String(error);
-            sendResponse({ success: false, error: errorMessage });
-        });
+        .catch(error => sendResponse({ success: false, error: error.message }));
       return true;
+      
     default:
-      console.warn('[ServiceWorker] Unknown message type received:', message.type);
-      sendResponse({ success: false, error: 'Unknown message type' });
-  }
-  return false;
-});
-
-chrome.debugger.onEvent.addListener((source, method, params) => { // *** ADDED LOGGING ***
-  if (!recordingState.isRecording || source.tabId !== recordingState.activeTabId) { return; }
-  // Log that an event was received
-  console.log(`[ServiceWorker] Debugger event received: ${method}`);
-   recordingState.networkLogs.push({ type: method, source, params, timestamp: Date.now() });
-   console.log(`[ServiceWorker] networkLogs count now: ${recordingState.networkLogs.length}`); // Log count
-});
-
-chrome.debugger.onDetach.addListener((source, reason) => {
-  if (recordingState.isRecording && source.tabId === recordingState.activeTabId) {
-    console.warn(`[ServiceWorker] Debugger detached from tab ${source.tabId} due to: ${reason}. Stopping recording.`);
-    // If debugger detaches unexpectedly, trigger stop but flag it as potentially incomplete
-    handleStopRecording(true, `Debugger detached: ${reason}`)
-      .catch(error => console.error('[ServiceWorker] Error stopping recording after debugger detach:', error));
+      console.warn('[ServiceWorker] Unknown message type:', message.type);
   }
 });
 
-// --- Core Logic Functions ---
-async function handleStartRecording(tabIdToRecord) {
+// Enhanced debugger event handler
+chrome.debugger.onEvent.addListener((source, method, params) => {
+  if (!recordingState.isRecording || 
+      !recordingState.recordNetwork || 
+      source.tabId !== recordingState.activeTabId) {
+    return;
+  }
+  
+  // Filter relevant network events
+  if (['Network.requestWillBeSent', 'Network.responseReceived', 
+       'Network.loadingFinished', 'Network.loadingFailed'].includes(method)) {
+    recordingState.networkLogs.push({
+      type: method,
+      params,
+      timestamp: Date.now(),
+      relativeTime: Date.now() - recordingState.recordingStartTime,
+      requestId: params.requestId
+    });
+  }
+});
+
+// --- Core Recording Functions ---
+async function handleStartRecording(tabId, options = {}) {
   if (recordingState.isRecording) {
-    return Promise.reject(new Error('Recording already in progress.'));
+    throw new Error('Recording already in progress');
   }
-  resetRecordingState(); // Reset state *before* starting
+  
+  // Reset and configure state
+  resetRecordingState();
   recordingState.isRecording = true;
-  recordingState.activeTabId = tabIdToRecord || (await getActiveTabId());
-
+  recordingState.recordingStartTime = Date.now();
+  recordingState.activeTabId = tabId || (await getActiveTabId());
+  
+  // Apply recording options
+  Object.assign(recordingState, {
+    captureMode: options.captureMode || 'tab',
+    recordVideo: options.recordVideo !== false,
+    recordDOM: options.recordDOM !== false,
+    recordConsole: options.recordConsole !== false,
+    recordNetwork: options.recordNetwork !== false
+  });
+  
   if (!recordingState.activeTabId) {
     recordingState.isRecording = false;
-    return Promise.reject(new Error('Could not determine active tab.'));
+    throw new Error('No active tab found');
   }
+  
   try {
-    console.log("[ServiceWorker] Attempting to start tab capture...");
-    const streamId = await chrome.tabCapture.getMediaStreamId({ targetTabId: recordingState.activeTabId });
-    recordingState.streamId = streamId;
-    console.log("[ServiceWorker] Tab capture stream ID obtained:", streamId);
+    // Get tab information
+    const tab = await chrome.tabs.get(recordingState.activeTabId);
+    recordingState.pageUrl = tab.url;
+    recordingState.pageTitle = tab.title;
+    
+    // Start appropriate capture method
+    if (recordingState.recordVideo) {
+      if (recordingState.captureMode === 'tab') {
+        await startTabCapture();
+      } else {
+        await startDesktopCapture();
+      }
+    }
+    
+    // Inject scripts for console and DOM recording
+    if (recordingState.recordConsole || recordingState.recordDOM) {
+      await injectRecordingScripts();
+    }
+    
+    // Attach debugger for network recording
+    if (recordingState.recordNetwork) {
+      await attachDebugger();
+    }
+    
+    // Update badge
+    chrome.action.setBadgeText({ text: 'REC' });
+    chrome.action.setBadgeBackgroundColor({ color: '#dc2626' });
+    
+    // Notify popup
+    chrome.runtime.sendMessage({
+      type: 'RECORDING_STARTED',
+      payload: { tabId: recordingState.activeTabId }
+    });
+    
+    console.log('[ServiceWorker] Recording started successfully');
+  } catch (error) {
+    await handleStopRecording(true, error.message);
+    throw error;
+  }
+}
 
-    await setupOffscreenDocument(streamId); // Creates doc and sends start message
+async function startTabCapture() {
+  const streamId = await chrome.tabCapture.getMediaStreamId({
+    targetTabId: recordingState.activeTabId
+  });
+  recordingState.streamId = streamId;
+  await setupOffscreenDocument(streamId);
+}
 
-    console.log("[ServiceWorker] Attempting to inject content script...");
+async function startDesktopCapture() {
+  return new Promise((resolve, reject) => {
+    chrome.desktopCapture.chooseDesktopMedia(
+      recordingState.captureMode === 'window' ? ['window'] : ['screen'],
+      async (streamId) => {
+        if (!streamId) {
+          reject(new Error('User cancelled desktop capture'));
+          return;
+        }
+        recordingState.streamId = streamId;
+        await setupOffscreenDocument(streamId);
+        resolve();
+      }
+    );
+  });
+}
+
+async function injectRecordingScripts() {
+  const scripts = [];
+  
+  if (recordingState.recordConsole) {
+    scripts.push('content_scripts/console-interceptor.js');
+  }
+  
+  if (recordingState.recordDOM) {
+    scripts.push('content_scripts/rrweb-recorder.js');
+  }
+  
+  for (const file of scripts) {
     await chrome.scripting.executeScript({
       target: { tabId: recordingState.activeTabId },
-      files: ['content_scripts/console-interceptor.js'],
+      files: [file],
       injectImmediately: true,
       world: 'MAIN'
     });
-    console.log("[ServiceWorker] Content script injected.");
-
-    console.log("[ServiceWorker] Attempting to attach debugger...");
-    await chrome.debugger.attach({ tabId: recordingState.activeTabId }, "1.3");
-    console.log("[ServiceWorker] Debugger attached.");
-    await chrome.debugger.sendCommand({ tabId: recordingState.activeTabId }, "Network.enable", {});
-    console.log("[ServiceWorker] Network domain enabled.");
-
-    chrome.action.setBadgeText({ text: 'REC' });
-    chrome.action.setBadgeBackgroundColor({ color: '#FF0000' });
-    console.log(`[ServiceWorker] Recording started successfully on tab ${recordingState.activeTabId}`);
-  } catch (error) {
-    console.error('[ServiceWorker] Failed to start recording:', error);
-    // Attempt cleanup even if start failed
-    await handleStopRecording(true, `Error during startup: ${error.message}`);
-    throw error; // Re-throw to notify popup
   }
+  
+  recordingState.rrwebScriptInjected = recordingState.recordDOM;
 }
 
-// *** Modified handleStopRecording ***
+async function attachDebugger() {
+  await chrome.debugger.attach({ tabId: recordingState.activeTabId }, "1.3");
+  await chrome.debugger.sendCommand(
+    { tabId: recordingState.activeTabId },
+    "Network.enable",
+    {}
+  );
+}
+
 async function handleStopRecording(forced = false, reason = '') {
   if (!recordingState.isRecording && !forced) {
-    console.warn('[ServiceWorker] Stop requested, but recording is already inactive.');
-    return; // Avoid duplicate stop logic
+    return;
   }
-  console.log(`[ServiceWorker] Initiating stop recording process. Forced: ${forced}, Reason: ${reason}`);
-
-  // Mark that we are now waiting for the video data result
-  recordingState.isWaitingForVideoData = true;
-  // Keep isRecording = true for now, set false in sendFinalStopUpdate
-
+  
+  console.log('[ServiceWorker] Stopping recording...');
+  recordingState.isWaitingForVideoData = recordingState.recordVideo;
+  
   try {
-    // Stop video recording (message offscreen)
-    if (recordingState.offscreenDocumentCreated && recordingState.streamId) {
-      const existingContexts = await chrome.runtime.getContexts({
-        contextTypes: ['OFFSCREEN_DOCUMENT'],
-        documentUrls: [chrome.runtime.getURL('offscreen/offscreen.html')]
+    // Stop video recording
+    if (recordingState.recordVideo && recordingState.offscreenDocumentCreated) {
+      chrome.runtime.sendMessage({
+        type: 'stopTabRecording',
+        target: 'offscreen'
       });
-      if (existingContexts.length > 0) {
-         console.log("[ServiceWorker] Sending stopTabRecording message to offscreen.");
-         chrome.runtime.sendMessage({ type: 'stopTabRecording', target: 'offscreen' });
-         // Video data will arrive via 'VIDEO_BUFFER_READY' or 'RECORDING_ERROR' asynchronously
-      } else {
-        console.warn("[ServiceWorker] Offscreen doc not found for stopTabRecording. Video data might be lost.");
-        recordingState.videoBlob = null; // Ensure blob is null
-        // Since offscreen isn't there, we are no longer waiting for video data from it
-        recordingState.isWaitingForVideoData = false;
-        // Send the final update now as there's no video data coming
-        sendFinalStopUpdate(reason || "Offscreen document missing during stop.");
-      }
-    } else {
-        console.warn("[ServiceWorker] Offscreen doc not created or streamId missing, cannot stop video recording via message.");
-        recordingState.videoBlob = null; // Ensure blob is null
-        // No offscreen doc means no video data is coming
-        recordingState.isWaitingForVideoData = false;
-        // Send the final update now
-        sendFinalStopUpdate(reason || "Offscreen document not used during recording.");
     }
-
-    // Detach debugger (can happen in parallel with waiting for video)
-    if (recordingState.activeTabId) {
+    
+    // Detach debugger
+    if (recordingState.recordNetwork && recordingState.activeTabId) {
       try {
-        const targets = await chrome.debugger.getTargets();
-        const attachedTarget = targets.find(target => target.tabId === recordingState.activeTabId && target.attached);
-        if (attachedTarget) {
-          await chrome.debugger.detach({ tabId: recordingState.activeTabId });
-          console.log("[ServiceWorker] Debugger detached.");
-        } else {
-             console.log("[ServiceWorker] Debugger detach requested, but not attached.");
-        }
+        await chrome.debugger.detach({ tabId: recordingState.activeTabId });
       } catch (e) {
-        console.warn('[ServiceWorker] Error detaching debugger (may be benign):', e.message);
+        console.warn('[ServiceWorker] Debugger detach error:', e);
       }
     }
+    
+    // Get final DOM events if recording
+    if (recordingState.recordDOM && recordingState.rrwebScriptInjected) {
+      await chrome.tabs.sendMessage(recordingState.activeTabId, {
+        type: 'STOP_RRWEB_RECORDING'
+      });
+    }
+    
+    // If not waiting for video, finalize now
+    if (!recordingState.isWaitingForVideoData) {
+      await finalizeRecording();
+    }
   } catch (error) {
-    console.error('[ServiceWorker] Error initiating stop recording components:', error);
-    // If errors happen here, still try to send a final update, marking recording as stopped
-    recordingState.isWaitingForVideoData = false; // Stop waiting
-    sendFinalStopUpdate(error.message || "Error during stop initiation.");
+    console.error('[ServiceWorker] Error stopping recording:', error);
+    await finalizeRecording(error.message);
   }
-  // NOTE: The final update to the popup now happens in sendFinalStopUpdate,
-  // which is called either immediately above (if offscreen wasn't used/found)
-  // or later when VIDEO_BUFFER_READY or RECORDING_ERROR is received.
 }
 
-// *** NEW FUNCTION to send the final state update ***
-function sendFinalStopUpdate(errorReason = null) {
-    console.log("[ServiceWorker] Preparing to send final stop update to popup.");
-    recordingState.isRecording = false; // Officially stopped now
-    const calculatedHasData = recordingState.videoBlob !== null || recordingState.consoleLogs.length > 0 || recordingState.networkLogs.length > 0;
-    console.log(`[ServiceWorker] sendFinalStopUpdate. videoBlob: ${recordingState.videoBlob ? `Blob(size=${recordingState.videoBlob.size})` : 'null'}, consoleLogs: ${recordingState.consoleLogs.length}, networkLogs: ${recordingState.networkLogs.length}, calculatedHasData: ${calculatedHasData}`);
-
-    chrome.action.setBadgeText({ text: '' });
-    chrome.runtime.sendMessage({
-        type: 'RECORDING_STATE_UPDATED',
-        payload: {
-            isRecording: false,
-            hasRecordedData: calculatedHasData,
-            error: errorReason // Pass along any error reason
-        }
-    });
-    console.log('[ServiceWorker] Final recording stopped signal sent.');
-    // Close offscreen doc *after* sending update
-    setTimeout(closeOffscreenDocumentIfNeeded, 100);
-}
-
-
-async function setupOffscreenDocument(streamId) {
-  const offscreenUrl = chrome.runtime.getURL('offscreen/offscreen.html');
-  const existingContexts = await chrome.runtime.getContexts({
-    contextTypes: ['OFFSCREEN_DOCUMENT'], documentUrls: [offscreenUrl]
-  });
-  if (existingContexts.length === 0) {
-    console.log("[ServiceWorker] Creating offscreen document.");
-    await chrome.offscreen.createDocument({
-      url: offscreenUrl,
-      reasons: [chrome.offscreen.Reason.USER_MEDIA],
-      justification: 'Tab video recording using MediaRecorder API'
-    });
-  } else {
-      console.log("[ServiceWorker] Offscreen document already exists.");
-  }
-  recordingState.offscreenDocumentCreated = true;
-  console.log("[ServiceWorker] Sending startTabRecording message to offscreen.");
-  setTimeout(() => {
-    chrome.runtime.sendMessage({ type: 'startTabRecording', target: 'offscreen', streamId: streamId });
-  }, 500);
-}
-
-async function closeOffscreenDocumentIfNeeded() {
-  if (recordingState.offscreenDocumentCreated) {
-    const offscreenUrl = chrome.runtime.getURL('offscreen/offscreen.html');
-    const existingContexts = await chrome.runtime.getContexts({
-      contextTypes: ['OFFSCREEN_DOCUMENT'], documentUrls: [offscreenUrl]
-    });
-    if (existingContexts.length > 0) {
-      await chrome.offscreen.closeDocument();
-      recordingState.offscreenDocumentCreated = false;
-      console.log("[ServiceWorker] Offscreen document closed.");
-    } else {
-        console.log("[ServiceWorker] Attempted to close offscreen doc, but none found.");
-        recordingState.offscreenDocumentCreated = false;
+async function handleVideoBufferReady(payload) {
+  if (payload && payload.buffer instanceof ArrayBuffer && payload.mimeType) {
+    try {
+      recordingState.videoBlob = new Blob([payload.buffer], { type: payload.mimeType });
+      console.log('[ServiceWorker] Video blob created, size:', recordingState.videoBlob.size);
+    } catch (error) {
+      console.error('[ServiceWorker] Error creating video blob:', error);
     }
   }
+  
+  if (recordingState.isWaitingForVideoData) {
+    await finalizeRecording();
+  }
+  
+  closeOffscreenDocumentIfNeeded();
 }
 
-async function handleGenerateAISuggestions(userSummary, userDescription) {
-  const aiApiKey = await storageHelper.getAiApiKey();
-  if (!aiApiKey) throw new Error('AI API Key not configured.');
-  const promptText = logFormatter.formatLogsForAiPrompt(
-    recordingState.consoleLogs, recordingState.networkLogs,
-    { summary: userSummary, description: userDescription }
-  );
-  try {
-    const { summary: aiSummary, steps: aiSteps } = await geminiApi.generateAiSuggestions(aiApiKey, promptText);
-    return { summary: aiSummary, steps: aiSteps };
-  } catch (error) {
-    console.error("[ServiceWorker] Error from Gemini API:", error);
-    throw new Error(`AI suggestion generation failed: ${error.message}`);
+async function handleRecordingError(error) {
+  console.error('[ServiceWorker] Recording error:', error);
+  
+  if (recordingState.isWaitingForVideoData) {
+    await finalizeRecording(error);
   }
+  
+  closeOffscreenDocumentIfNeeded();
 }
 
-// --- Dynamic Jira Data Handlers ---
-async function handleFetchJiraProjects() {
-    const jiraCredentials = await storageHelper.getJiraCredentials();
-    if (!jiraCredentials || !jiraCredentials.baseUrl || !jiraCredentials.email || !jiraCredentials.apiToken) {
-        throw new Error('Jira credentials not configured. Please set them in the extension options.');
-    }
-    const credsForApi = { baseUrl: jiraCredentials.baseUrl, email: jiraCredentials.email, apiToken: jiraCredentials.apiToken };
-    return jiraApi.getJiraProjects(credsForApi);
-}
-
-async function handleFetchJiraIssueTypes(projectKey) {
-    if (!projectKey) { throw new Error('Project Key is required to fetch issue types.'); }
-    const jiraCredentials = await storageHelper.getJiraCredentials();
-     if (!jiraCredentials || !jiraCredentials.baseUrl || !jiraCredentials.email || !jiraCredentials.apiToken) {
-        throw new Error('Jira credentials not configured. Please set them in the extension options.');
-    }
-    const credsForApi = { baseUrl: jiraCredentials.baseUrl, email: jiraCredentials.email, apiToken: jiraCredentials.apiToken };
-    return jiraApi.getJiraIssueTypesForProject(credsForApi, projectKey);
-}
-
-
-// --- Modified Jira Submission with CreateMeta Check ---
-async function handleSubmitToJira(payload) {
-  const { projectKey, issueTypeName, summary, description } = payload;
-
-  if (!projectKey || !issueTypeName || !summary) {
-    throw new Error('Project Key, Issue Type, or Summary is missing for Jira submission.');
-  }
-
-  const jiraCredentials = await storageHelper.getJiraCredentials();
-  if (!jiraCredentials || !jiraCredentials.baseUrl || !jiraCredentials.email || !jiraCredentials.apiToken) {
-    throw new Error('Jira credentials (Base URL, Email, API Token) not configured.');
-  }
-
-  // Use the reconstructed videoBlob from recordingState
-  const hasAnyData = recordingState.videoBlob !== null || recordingState.consoleLogs.length > 0 || recordingState.networkLogs.length > 0;
-  if (!hasAnyData) {
-    throw new Error('No data recorded (video, console, or network logs). Cannot submit empty report.');
-  }
-
-  recordingState.userBugSummary = summary;
-  recordingState.userBugDescription = description;
-
-  const reportDetailsText = `User Summary: ${summary}\n\nUser Description/Steps:\n${description}\n\n--- Additional Context ---\nReport generated by Advanced Bug Reporter Chrome Extension.`;
-
-  // --- Create ZIP ---
-  console.log('[ServiceWorker] Preparing to create ZIP. Current videoBlob:', recordingState.videoBlob);
-  const zipBlobPackage = await zipHelper.createReportZip(
-    recordingState.videoBlob, recordingState.consoleLogs, recordingState.networkLogs,
-    reportDetailsText, summary
-  );
-  if (!zipBlobPackage) { throw new Error('Failed to create ZIP report package.'); }
-
-  // --- Prepare Issue Data ---
-  const descriptionForJira = {
-    type: "doc", version: 1, content: [
-      { type: "paragraph", content: [{ type: "text", text: "Bug Report Details:" }] },
-      { type: "paragraph", content: [{ type: "text", text: `User Provided Summary: ${summary}` }] },
-      { type: "paragraph", content: [{ type: "text", text: `User Provided Description/Steps to Reproduce:\n${description}` }] },
-      { type: "paragraph", content: [{ type: "text", text: "\n\n(See attached ZIP file for video recording, console logs, and network logs if available.)" }] }
-    ]
-  };
-  const issueData = {
-    projectKey: projectKey,
-    issueTypeName: issueTypeName,
-    summary: summary,
-    descriptionAdf: descriptionForJira,
-  };
-  const credsForApi = {
-      baseUrl: jiraCredentials.baseUrl,
-      email: jiraCredentials.email,
-      apiToken: jiraCredentials.apiToken,
-      projectKey: projectKey // Pass selected project key here
-  };
-
-  // --- Get Create Metadata (Optional but recommended) ---
-  let availableFields = null;
-  try {
-    console.log(`[ServiceWorker] Fetching createmeta for ${projectKey} / ${issueTypeName}`);
-    const metadataCreds = { baseUrl: jiraCredentials.baseUrl, email: jiraCredentials.email, apiToken: jiraCredentials.apiToken };
-    const issueTypeMetadata = await jiraApi.getCreateMetadata(metadataCreds, projectKey, issueTypeName);
-    availableFields = issueTypeMetadata.fields;
-    console.log("[ServiceWorker] Successfully fetched createmeta. Available fields obtained.");
-  } catch (metaError) {
-    console.warn(`[ServiceWorker] Failed to fetch createmeta: ${metaError.message}. Proceeding without field availability check.`);
-    availableFields = null;
-  }
-
-  // --- Create Issue ---
-  try {
-    const createdIssue = await jiraApi.createJiraIssue(credsForApi, issueData, availableFields);
-    recordingState.jiraIssueKey = createdIssue.key;
-    console.log('[ServiceWorker] Jira issue created:', createdIssue.key);
-
-    // --- Add Attachment ---
-    const attachmentCreds = { baseUrl: jiraCredentials.baseUrl, email: jiraCredentials.email, apiToken: jiraCredentials.apiToken };
-    await jiraApi.addJiraAttachment(attachmentCreds, createdIssue.key, zipBlobPackage, `bug_report_${createdIssue.key.replace(/\s+/g, '_')}.zip`);
-    console.log('[ServiceWorker] Report ZIP attached to Jira issue:', createdIssue.key);
-
-    resetRecordingState(); // Reset state after successful submission
-    return createdIssue.key; // Success
-  } catch (error) {
-    console.error("[ServiceWorker] Error during Jira issue creation or attachment:", error);
-    throw error; // Re-throw the original error
-  }
-}
-
-// --- Utility Functions ---
-function resetRecordingState() {
+async function finalizeRecording(error = null) {
   recordingState.isRecording = false;
-  recordingState.activeTabId = null;
-  recordingState.streamId = null;
-  recordingState.consoleLogs = [];
-  recordingState.networkLogs = [];
-  recordingState.videoBlob = null; // Clear the reconstructed blob
-  recordingState.userBugSummary = '';
-  recordingState.userBugDescription = '';
-  recordingState.jiraIssueKey = null;
-  console.log('[ServiceWorker] Recording state reset.');
+  recordingState.isWaitingForVideoData = false;
+  
+  chrome.action.setBadgeText({ text: '' });
+  
+  // Get screen resolution
+  const displays = await chrome.system.display.getInfo();
+  if (displays.length > 0) {
+    const primary = displays.find(d => d.isPrimary) || displays[0];
+    recordingState.screenResolution = `${primary.bounds.width}x${primary.bounds.height}`;
+  }
+  
+  // Save recording
+  const recording = {
+    id: `rec_${Date.now()}`,
+    timestamp: recordingState.recordingStartTime,
+    duration: Date.now() - recordingState.recordingStartTime,
+    pageUrl: recordingState.pageUrl,
+    pageTitle: recordingState.pageTitle,
+    userAgent: navigator.userAgent,
+    screenResolution: recordingState.screenResolution,
+    hasVideo: !!recordingState.videoBlob,
+    hasDOM: recordingState.domEvents.length > 0,
+    consoleLogs: recordingState.consoleLogs.length,
+    networkLogs: recordingState.networkLogs.length,
+    error: error
+  };
+  
+  // Store recording data
+  await chrome.storage.local.set({
+    [`recording_${recording.id}`]: {
+      ...recording,
+      videoBlob: recordingState.videoBlob,
+      domEvents: recordingState.domEvents,
+      consoleLogs: recordingState.consoleLogs,
+      networkLogs: recordingState.networkLogs
+    }
+  });
+  
+  await RecordingStorage.saveRecording(recording);
+  
+  // Open review page
+  if (!error) {
+    await openRecordingReview(recording.id);
+  }
+  
+  // Notify popup
+  chrome.runtime.sendMessage({
+    type: 'RECORDING_STOPPED',
+    payload: { recordingId: recording.id, error }
+  });
+  
+  console.log('[ServiceWorker] Recording finalized:', recording.id);
+}
+
+async function openRecordingReview(recordingId) {
+  const url = chrome.runtime.getURL(`review/review.html?id=${recordingId}`);
+  await chrome.tabs.create({ url });
+}
+
+// --- Helper Functions ---
+function resetRecordingState() {
+  recordingState = {
+    isRecording: false,
+    recordingStartTime: null,
+    activeTabId: null,
+    streamId: null,
+    captureMode: 'tab',
+    recordVideo: true,
+    recordDOM: true,
+    recordConsole: true,
+    recordNetwork: true,
+    consoleLogs: [],
+    networkLogs: [],
+    domEvents: [],
+    videoBlob: null,
+    pageUrl: '',
+    pageTitle: '',
+    userAgent: '',
+    screenResolution: '',
+    offscreenDocumentCreated: false,
+    isWaitingForVideoData: false,
+    rrwebScriptInjected: false
+  };
+}
+
+function hasRecordedData() {
+  return recordingState.videoBlob !== null ||
+         recordingState.consoleLogs.length > 0 ||
+         recordingState.networkLogs.length > 0 ||
+         recordingState.domEvents.length > 0;
+}
+
+function getRecordingDuration() {
+  if (!recordingState.isRecording || !recordingState.recordingStartTime) {
+    return 0;
+  }
+  return Date.now() - recordingState.recordingStartTime;
 }
 
 async function getActiveTabId() {
@@ -503,9 +532,169 @@ async function getActiveTabId() {
     const [activeTab] = await chrome.tabs.query({ active: true, currentWindow: true });
     return activeTab ? activeTab.id : null;
   } catch (error) {
-    console.error("[ServiceWorker] Error getting active tab ID:", error);
+    console.error('[ServiceWorker] Error getting active tab:', error);
     return null;
   }
 }
 
-console.log('[ServiceWorker] Script loaded and running (Corrected Stop Timing, ArrayBuffer handling, createmeta check, and added logging).');
+async function setupOffscreenDocument(streamId) {
+  const offscreenUrl = chrome.runtime.getURL('offscreen/offscreen.html');
+  const existingContexts = await chrome.runtime.getContexts({
+    contextTypes: ['OFFSCREEN_DOCUMENT'],
+    documentUrls: [offscreenUrl]
+  });
+  
+  if (existingContexts.length === 0) {
+    await chrome.offscreen.createDocument({
+      url: offscreenUrl,
+      reasons: [chrome.offscreen.Reason.USER_MEDIA],
+      justification: 'Recording browser content for bug reporting'
+    });
+  }
+  
+  recordingState.offscreenDocumentCreated = true;
+  
+  setTimeout(() => {
+    chrome.runtime.sendMessage({
+      type: 'startTabRecording',
+      target: 'offscreen',
+      streamId: streamId
+    });
+  }, 100);
+}
+
+async function closeOffscreenDocumentIfNeeded() {
+  if (recordingState.offscreenDocumentCreated) {
+    try {
+      await chrome.offscreen.closeDocument();
+      recordingState.offscreenDocumentCreated = false;
+    } catch (e) {
+      console.log('[ServiceWorker] Offscreen document already closed');
+    }
+  }
+}
+
+// --- API Handlers ---
+async function handleGenerateAISuggestions(payload) {
+  const { recordingId, summary, description } = payload;
+  
+  let recordingData;
+  if (recordingId) {
+    const stored = await chrome.storage.local.get(`recording_${recordingId}`);
+    recordingData = stored[`recording_${recordingId}`];
+  } else {
+    recordingData = {
+      consoleLogs: recordingState.consoleLogs,
+      networkLogs: recordingState.networkLogs
+    };
+  }
+  
+  const aiApiKey = await storageHelper.getAiApiKey();
+  if (!aiApiKey) {
+    throw new Error('AI API Key not configured');
+  }
+  
+  const promptText = logFormatter.formatLogsForAiPrompt(
+    recordingData.consoleLogs,
+    recordingData.networkLogs,
+    { summary, description }
+  );
+  
+  const { summary: aiSummary, steps: aiSteps } = await geminiApi.generateAiSuggestions(
+    aiApiKey,
+    promptText
+  );
+  
+  return { aiSummary, aiSteps };
+}
+
+async function handleFetchJiraProjects() {
+  const jiraCredentials = await storageHelper.getJiraCredentials();
+  if (!jiraCredentials || !jiraCredentials.baseUrl) {
+    throw new Error('Jira not configured');
+  }
+  
+  return jiraApi.getJiraProjects(jiraCredentials);
+}
+
+async function handleFetchJiraIssueTypes(projectKey) {
+  if (!projectKey) {
+    throw new Error('Project key required');
+  }
+  
+  const jiraCredentials = await storageHelper.getJiraCredentials();
+  if (!jiraCredentials || !jiraCredentials.baseUrl) {
+    throw new Error('Jira not configured');
+  }
+  
+  return jiraApi.getJiraIssueTypesForProject(jiraCredentials, projectKey);
+}
+
+async function handleSubmitToJira(payload) {
+  const {
+    recordingId,
+    projectKey,
+    issueTypeName,
+    summary,
+    description,
+    attachments
+  } = payload;
+  
+  const jiraCredentials = await storageHelper.getJiraCredentials();
+  if (!jiraCredentials || !jiraCredentials.baseUrl) {
+    throw new Error('Jira not configured');
+  }
+  
+  // Get recording data if specified
+  let recordingData = null;
+  if (recordingId) {
+    const stored = await chrome.storage.local.get(`recording_${recordingId}`);
+    recordingData = stored[`recording_${recordingId}`];
+  }
+  
+  // Create issue
+  const issueData = {
+    projectKey,
+    issueTypeName,
+    summary,
+    descriptionAdf: {
+      type: "doc",
+      version: 1,
+      content: [
+        {
+          type: "paragraph",
+          content: [{ type: "text", text: description }]
+        }
+      ]
+    }
+  };
+  
+  const createdIssue = await jiraApi.createJiraIssue(
+    jiraCredentials,
+    issueData
+  );
+  
+  // Add attachments if requested
+  if (recordingData && attachments) {
+    const zipBlob = await zipHelper.createReportZip(
+      attachments.video ? recordingData.videoBlob : null,
+      attachments.logs ? recordingData.consoleLogs : [],
+      attachments.logs ? recordingData.networkLogs : [],
+      description,
+      summary
+    );
+    
+    if (zipBlob) {
+      await jiraApi.addJiraAttachment(
+        jiraCredentials,
+        createdIssue.key,
+        zipBlob,
+        `bug_report_${createdIssue.key}.zip`
+      );
+    }
+  }
+  
+  return createdIssue.key;
+}
+
+console.log('[ServiceWorker] Enhanced Bug Reporter Pro loaded');
