@@ -1,11 +1,52 @@
 // service-worker.js - Enhanced with rrweb and improved architecture
 
-// Import helper modules
-import * as jiraApi from './utils/jiraApi.js';
-import * as geminiApi from './utils/geminiApi.js';
-import * as storageHelper from './utils/storageHelper.js';
-import * as logFormatter from './utils/logFormatter.js';
-import * as zipHelper from './utils/zipHelper.js';
+// First, load JSZip as a global script (UMD version)
+importScripts('./libs/jszip.min.js');
+
+// Load helper modules that don't use ES6 import/export
+importScripts('./utils/zipHelper.js');
+
+// For ES6 modules, we need to handle them differently in service worker
+// These modules need to be converted to use global scope instead of import/export
+
+// Temporary storage for module functions
+const modules = {
+    jiraApi: {},
+    geminiApi: {},
+    storageHelper: {},
+    logFormatter: {}
+};
+
+// Load jiraApi functions
+importScripts('./utils/jiraApi.js');
+if (self.jiraApi) {
+    Object.assign(modules.jiraApi, self.jiraApi);
+}
+
+// Load geminiApi functions
+importScripts('./utils/geminiApi.js');
+if (self.geminiApi) {
+    Object.assign(modules.geminiApi, self.geminiApi);
+}
+
+// Load storageHelper functions
+importScripts('./utils/storageHelper.js');
+if (self.storageHelper) {
+    Object.assign(modules.storageHelper, self.storageHelper);
+}
+
+// Load logFormatter functions
+importScripts('./utils/logFormatter.js');
+if (self.logFormatter) {
+    Object.assign(modules.logFormatter, self.logFormatter);
+}
+
+// Destructure for easier access
+const jiraApi = modules.jiraApi;
+const geminiApi = modules.geminiApi;
+const storageHelper = modules.storageHelper;
+const logFormatter = modules.logFormatter;
+const zipHelper = self.zipHelper || {};
 
 // --- Recording Storage ---
 class RecordingStorage {
@@ -290,8 +331,6 @@ async function handleStartRecording(tabId, options = {}) {
     chrome.runtime.sendMessage({
       type: 'RECORDING_STARTED',
       payload: { tabId: recordingState.activeTabId }
-    }).catch(() => {
-      // Popup might be closed, ignore error
     });
     
     console.log('[ServiceWorker] Recording started successfully');
@@ -364,21 +403,15 @@ async function handleStopRecording(forced = false, reason = '') {
   }
   
   console.log('[ServiceWorker] Stopping recording...');
-  recordingState.isRecording = false; // Set immediately to prevent multiple stops
   recordingState.isWaitingForVideoData = recordingState.recordVideo;
   
   try {
     // Stop video recording
     if (recordingState.recordVideo && recordingState.offscreenDocumentCreated) {
-      try {
-        await sendMessageWithTimeout({
-          type: 'stopTabRecording',
-          target: 'offscreen'
-        }, 5000); // 5 second timeout
-      } catch (error) {
-        console.warn('[ServiceWorker] Failed to send stop message to offscreen:', error);
-        recordingState.isWaitingForVideoData = false;
-      }
+      chrome.runtime.sendMessage({
+        type: 'stopTabRecording',
+        target: 'offscreen'
+      });
     }
     
     // Detach debugger
@@ -391,41 +424,20 @@ async function handleStopRecording(forced = false, reason = '') {
     }
     
     // Get final DOM events if recording
-    if (recordingState.recordDOM && recordingState.rrwebScriptInjected && recordingState.activeTabId) {
-      try {
-        await chrome.tabs.sendMessage(recordingState.activeTabId, {
-          type: 'STOP_RRWEB_RECORDING'
-        });
-      } catch (e) {
-        console.warn('[ServiceWorker] Failed to stop rrweb recording:', e);
-      }
+    if (recordingState.recordDOM && recordingState.rrwebScriptInjected) {
+      await chrome.tabs.sendMessage(recordingState.activeTabId, {
+        type: 'STOP_RRWEB_RECORDING'
+      });
     }
     
-    // If not waiting for video or if forced, finalize now
-    if (!recordingState.isWaitingForVideoData || forced) {
-      await finalizeRecording(reason);
-    } else {
-      // Set a timeout to finalize even if video doesn't arrive
-      setTimeout(() => {
-        if (recordingState.isWaitingForVideoData) {
-          console.warn('[ServiceWorker] Video data timeout, finalizing without video');
-          finalizeRecording('Video data timeout');
-        }
-      }, 10000); // 10 second timeout
+    // If not waiting for video, finalize now
+    if (!recordingState.isWaitingForVideoData) {
+      await finalizeRecording();
     }
   } catch (error) {
     console.error('[ServiceWorker] Error stopping recording:', error);
     await finalizeRecording(error.message);
   }
-}
-
-async function sendMessageWithTimeout(message, timeout = 5000) {
-  return Promise.race([
-    chrome.runtime.sendMessage(message),
-    new Promise((_, reject) => 
-      setTimeout(() => reject(new Error('Message timeout')), timeout)
-    )
-  ]);
 }
 
 async function handleVideoBufferReady(payload) {
@@ -439,7 +451,6 @@ async function handleVideoBufferReady(payload) {
   }
   
   if (recordingState.isWaitingForVideoData) {
-    recordingState.isWaitingForVideoData = false;
     await finalizeRecording();
   }
   
@@ -450,7 +461,6 @@ async function handleRecordingError(error) {
   console.error('[ServiceWorker] Recording error:', error);
   
   if (recordingState.isWaitingForVideoData) {
-    recordingState.isWaitingForVideoData = false;
     await finalizeRecording(error);
   }
   
@@ -458,30 +468,16 @@ async function handleRecordingError(error) {
 }
 
 async function finalizeRecording(error = null) {
-  if (!recordingState.recordingStartTime) {
-    console.warn('[ServiceWorker] No recording start time, skipping finalization');
-    return;
-  }
-  
-  console.log('[ServiceWorker] Finalizing recording...');
-  
   recordingState.isRecording = false;
   recordingState.isWaitingForVideoData = false;
   
   chrome.action.setBadgeText({ text: '' });
   
-  // Get screen resolution safely
-  try {
-    const displays = await chrome.system.display.getInfo();
-    if (displays && displays.length > 0) {
-      const primary = displays.find(d => d.isPrimary) || displays[0];
-      if (primary && primary.bounds) {
-        recordingState.screenResolution = `${primary.bounds.width}x${primary.bounds.height}`;
-      }
-    }
-  } catch (e) {
-    console.warn('[ServiceWorker] Failed to get display info:', e);
-    recordingState.screenResolution = 'Unknown';
+  // Get screen resolution
+  const displays = await chrome.system.display.getInfo();
+  if (displays.length > 0) {
+    const primary = displays.find(d => d.isPrimary) || displays[0];
+    recordingState.screenResolution = `${primary.bounds.width}x${primary.bounds.height}`;
   }
   
   // Save recording
@@ -518,12 +514,10 @@ async function finalizeRecording(error = null) {
     await openRecordingReview(recording.id);
   }
   
-  // Notify popup (if open)
+  // Notify popup
   chrome.runtime.sendMessage({
     type: 'RECORDING_STOPPED',
     payload: { recordingId: recording.id, error }
-  }).catch(() => {
-    // Popup might be closed, ignore error
   });
   
   console.log('[ServiceWorker] Recording finalized:', recording.id);
@@ -601,19 +595,13 @@ async function setupOffscreenDocument(streamId) {
   
   recordingState.offscreenDocumentCreated = true;
   
-  // Wait a bit for the document to be ready
-  await new Promise(resolve => setTimeout(resolve, 100));
-  
-  try {
-    await sendMessageWithTimeout({
+  setTimeout(() => {
+    chrome.runtime.sendMessage({
       type: 'startTabRecording',
       target: 'offscreen',
       streamId: streamId
-    }, 5000);
-  } catch (error) {
-    console.error('[ServiceWorker] Failed to start offscreen recording:', error);
-    throw error;
-  }
+    });
+  }, 100);
 }
 
 async function closeOffscreenDocumentIfNeeded() {

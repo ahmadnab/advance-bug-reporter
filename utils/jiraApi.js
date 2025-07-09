@@ -60,7 +60,7 @@ async function fetchJiraData(apiUrl, credentials) {
  * @returns {Promise<object>} A promise that resolves with the createmeta response object.
  * This object contains details about projects and their issue types, including available fields.
  */
-export async function getCreateMetadata(credentials, projectKey, issueTypeName) {
+async function getCreateMetadata(credentials, projectKey, issueTypeName) {
     if (!credentials || !credentials.baseUrl) {
         throw new Error('Jira base URL is missing for fetching createmeta.');
     }
@@ -111,7 +111,7 @@ export async function getCreateMetadata(credentials, projectKey, issueTypeName) 
  * @param {object} credentials - Object containing { baseUrl, email, apiToken }.
  * @returns {Promise<Array<object>>} A promise that resolves with an array of all issue type objects.
  */
-export async function getAllJiraIssueTypes(credentials) {
+async function getAllJiraIssueTypes(credentials) {
     if (!credentials || !credentials.baseUrl) {
         throw new Error('Jira base URL is missing for fetching all issue types.');
     }
@@ -133,7 +133,7 @@ export async function getAllJiraIssueTypes(credentials) {
  * @param {object} credentials - Object containing { baseUrl, email, apiToken }.
  * @returns {Promise<Array<object>>} A promise that resolves with an array of project objects.
  */
-export async function getJiraProjects(credentials) {
+async function getJiraProjects(credentials) {
     if (!credentials || !credentials.baseUrl) {
         throw new Error('Jira base URL is missing for fetching projects.');
     }
@@ -156,7 +156,7 @@ export async function getJiraProjects(credentials) {
  * @param {string} projectIdOrKey - The ID or key of the project to filter by.
  * @returns {Promise<Array<object>>} A promise that resolves with an array of filtered issue type objects for the project.
  */
-export async function getJiraIssueTypesForProject(credentials, projectIdOrKey) {
+async function getJiraIssueTypesForProject(credentials, projectIdOrKey) {
     if (!projectIdOrKey) {
         throw new Error('Project ID or Key is missing for filtering issue types.');
     }
@@ -188,7 +188,7 @@ export async function getJiraIssueTypesForProject(credentials, projectIdOrKey) {
  * If provided, only fields present in this object will be included in the request.
  * @returns {Promise<object>} A promise that resolves with the created issue data.
  */
-export async function createJiraIssue(credentials, issueData, availableFields = null) {
+async function createJiraIssue(credentials, issueData, availableFields = null) {
     if (!credentials || !credentials.baseUrl || !credentials.email || !credentials.apiToken || !credentials.projectKey) {
         throw new Error('Jira credentials or project key are missing or incomplete.');
     }
@@ -292,7 +292,7 @@ export async function createJiraIssue(credentials, issueData, availableFields = 
  * @param {string} attachmentFilename - The desired filename for the attachment in Jira.
  * @returns {Promise<Array<object>>} A promise that resolves with an array of attachment metadata objects.
  */
-export async function addJiraAttachment(credentials, issueIdOrKey, attachmentBlob, attachmentFilename) {
+async function addJiraAttachment(credentials, issueIdOrKey, attachmentBlob, attachmentFilename) {
      if (!credentials || !credentials.baseUrl || !credentials.email || !credentials.apiToken) {
         throw new Error('Jira credentials are missing or incomplete for adding attachment.');
     }
