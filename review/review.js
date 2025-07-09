@@ -1,6 +1,19 @@
 // review/review.js - Recording Review Interface
 import { formatConsoleLogsForReport, formatNetworkLogsForReport } from '../utils/logFormatter.js';
 
+// Dynamically import JSZip
+let JSZip = null;
+(async () => {
+    try {
+        const module = await import('../libs/jszip.esm.js');
+        JSZip = module.default || module.JSZip || module;
+        window.JSZip = JSZip; // Make it available globally
+        console.log('JSZip loaded successfully');
+    } catch (error) {
+        console.error('Failed to load JSZip:', error);
+    }
+})();
+
 // Get recording ID from URL
 const urlParams = new URLSearchParams(window.location.search);
 const recordingId = urlParams.get('id');
@@ -15,7 +28,7 @@ let currentPanel = 'player';
 let currentPlayer = 'video';
 let rrwebPlayer = null;
 
-// DOM Elements
+// DOM Elements - Safe initialization
 const loadingOverlay = document.getElementById('loadingOverlay');
 const recordingDate = document.querySelector('#recordingDate span');
 
@@ -109,7 +122,9 @@ async function loadRecording() {
     
     // Update recording date
     const date = new Date(currentRecording.timestamp);
-    recordingDate.textContent = date.toLocaleString();
+    if (recordingDate) {
+        recordingDate.textContent = date.toLocaleString();
+    }
 }
 
 function setupEventListeners() {
@@ -130,43 +145,43 @@ function setupEventListeners() {
     });
     
     // Console
-    consoleSearch.addEventListener('input', filterConsoleLogs);
-    consoleFilter.addEventListener('change', filterConsoleLogs);
-    clearConsoleFilter.addEventListener('click', () => {
-        consoleSearch.value = '';
-        consoleFilter.value = 'all';
+    if (consoleSearch) consoleSearch.addEventListener('input', filterConsoleLogs);
+    if (consoleFilter) consoleFilter.addEventListener('change', filterConsoleLogs);
+    if (clearConsoleFilter) clearConsoleFilter.addEventListener('click', () => {
+        if (consoleSearch) consoleSearch.value = '';
+        if (consoleFilter) consoleFilter.value = 'all';
         filterConsoleLogs();
     });
-    exportConsole.addEventListener('click', exportConsoleLogs);
+    if (exportConsole) exportConsole.addEventListener('click', exportConsoleLogs);
     
     // Network
-    networkSearch.addEventListener('input', filterNetworkRequests);
-    networkFilter.addEventListener('change', filterNetworkRequests);
-    exportNetwork.addEventListener('click', exportNetworkHAR);
+    if (networkSearch) networkSearch.addEventListener('input', filterNetworkRequests);
+    if (networkFilter) networkFilter.addEventListener('change', filterNetworkRequests);
+    if (exportNetwork) exportNetwork.addEventListener('click', exportNetworkHAR);
     
     // Summary
-    generateAiSummary.addEventListener('click', handleGenerateAiSummary);
-    applyAiSuggestions.addEventListener('click', handleApplyAiSuggestions);
-    dismissAiSuggestions.addEventListener('click', () => {
-        aiSuggestions.style.display = 'none';
+    if (generateAiSummary) generateAiSummary.addEventListener('click', handleGenerateAiSummary);
+    if (applyAiSuggestions) applyAiSuggestions.addEventListener('click', handleApplyAiSuggestions);
+    if (dismissAiSuggestions) dismissAiSuggestions.addEventListener('click', () => {
+        if (aiSuggestions) aiSuggestions.style.display = 'none';
     });
     
     // Timeline
-    timelineZoomIn.addEventListener('click', () => zoomTimeline(1.2));
-    timelineZoomOut.addEventListener('click', () => zoomTimeline(0.8));
+    if (timelineZoomIn) timelineZoomIn.addEventListener('click', () => zoomTimeline(1.2));
+    if (timelineZoomOut) timelineZoomOut.addEventListener('click', () => zoomTimeline(0.8));
     
     // Header actions
-    downloadBtn.addEventListener('click', handleDownloadAll);
-    createJiraBtn.addEventListener('click', showJiraModal);
+    if (downloadBtn) downloadBtn.addEventListener('click', handleDownloadAll);
+    if (createJiraBtn) createJiraBtn.addEventListener('click', showJiraModal);
     
     // Jira Modal
-    closeJiraModal.addEventListener('click', hideJiraModal);
-    cancelJiraSubmit.addEventListener('click', hideJiraModal);
-    submitJiraTicket.addEventListener('click', handleSubmitJira);
-    jiraProject.addEventListener('change', handleProjectChange);
+    if (closeJiraModal) closeJiraModal.addEventListener('click', hideJiraModal);
+    if (cancelJiraSubmit) cancelJiraSubmit.addEventListener('click', hideJiraModal);
+    if (submitJiraTicket) submitJiraTicket.addEventListener('click', handleSubmitJira);
+    if (jiraProject) jiraProject.addEventListener('change', handleProjectChange);
     
     // Close modal on outside click
-    jiraModal.addEventListener('click', (e) => {
+    if (jiraModal) jiraModal.addEventListener('click', (e) => {
         if (e.target === jiraModal) {
             hideJiraModal();
         }
@@ -175,8 +190,8 @@ function setupEventListeners() {
 
 function updateUI() {
     // Update counts
-    consoleCount.textContent = currentRecording.consoleLogs?.length || 0;
-    networkCount.textContent = currentRecording.networkLogs?.length || 0;
+    if (consoleCount) consoleCount.textContent = currentRecording.consoleLogs?.length || 0;
+    if (networkCount) networkCount.textContent = currentRecording.networkLogs?.length || 0;
     
     // Initialize panels
     initializePlayer();
@@ -219,24 +234,26 @@ function switchPlayer(player) {
 // Player Functions
 function initializePlayer() {
     // Video player
-    if (currentRecording.videoBlob) {
+    if (currentRecording.videoBlob && videoPlayer) {
         const videoUrl = URL.createObjectURL(currentRecording.videoBlob);
         videoPlayer.src = videoUrl;
         videoPlayer.style.display = 'block';
-        noVideoMessage.style.display = 'none';
+        if (noVideoMessage) noVideoMessage.style.display = 'none';
     } else {
-        videoPlayer.style.display = 'none';
-        noVideoMessage.style.display = 'flex';
-        document.getElementById('videoTab').disabled = true;
+        if (videoPlayer) videoPlayer.style.display = 'none';
+        if (noVideoMessage) noVideoMessage.style.display = 'flex';
+        const videoTab = document.getElementById('videoTab');
+        if (videoTab) videoTab.disabled = true;
     }
     
     // rrweb player
     if (currentRecording.domEvents && currentRecording.domEvents.length > 0) {
         initializeRrwebPlayer();
-        noDomMessage.style.display = 'none';
+        if (noDomMessage) noDomMessage.style.display = 'none';
     } else {
-        noDomMessage.style.display = 'flex';
-        document.getElementById('domTab').disabled = true;
+        if (noDomMessage) noDomMessage.style.display = 'flex';
+        const domTab = document.getElementById('domTab');
+        if (domTab) domTab.disabled = true;
     }
     
     // If no video, default to DOM player if available
@@ -246,8 +263,8 @@ function initializePlayer() {
 }
 
 function initializeRrwebPlayer() {
-    if (!window.rrwebPlayer) {
-        console.error('rrweb-player not loaded');
+    if (!window.rrwebPlayer || !rrwebPlayerContainer) {
+        console.error('rrweb-player not loaded or container not found');
         return;
     }
     
@@ -274,6 +291,8 @@ function initializeConsole() {
 }
 
 function renderConsoleLogs(logs) {
+    if (!consoleLogsContainer) return;
+    
     consoleLogsContainer.innerHTML = '';
     
     if (logs.length === 0) {
@@ -309,8 +328,10 @@ function formatLogMessage(args) {
 }
 
 function filterConsoleLogs() {
-    const searchTerm = consoleSearch.value.toLowerCase();
-    const filterLevel = consoleFilter.value;
+    if (!consoleLogsContainer) return;
+    
+    const searchTerm = consoleSearch?.value.toLowerCase() || '';
+    const filterLevel = consoleFilter?.value || 'all';
     
     const entries = consoleLogsContainer.querySelectorAll('.log-entry');
     entries.forEach(entry => {
@@ -335,6 +356,8 @@ function initializeNetwork() {
 }
 
 function renderNetworkRequests(logs) {
+    if (!networkRequests) return;
+    
     networkRequests.innerHTML = '';
     
     if (logs.length === 0) {
@@ -452,14 +475,16 @@ function zoomTimeline(factor) {
 
 // AI Summary Functions
 async function handleGenerateAiSummary() {
+    if (!generateAiSummary) return;
+    
     try {
         generateAiSummary.disabled = true;
         generateAiSummary.innerHTML = '<div class="loading"></div> Generating...';
         
         const response = await sendMessage('GENERATE_AI_SUGGESTIONS', {
             recordingId: recordingId,
-            summary: bugTitle.value,
-            description: bugDescription.value
+            summary: bugTitle?.value || '',
+            description: bugDescription?.value || ''
         });
         
         if (!response.success) {
@@ -471,17 +496,21 @@ async function handleGenerateAiSummary() {
     } catch (error) {
         showError('Failed to generate AI suggestions: ' + error.message);
     } finally {
-        generateAiSummary.disabled = false;
-        generateAiSummary.innerHTML = `
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                <path d="M12 2L2 7V17C2 19.21 3.79 21 6 21H18C20.21 21 22 19.21 22 17V7L12 2Z" stroke="currentColor" stroke-width="2"/>
-            </svg>
-            Generate AI Summary
-        `;
+        if (generateAiSummary) {
+            generateAiSummary.disabled = false;
+            generateAiSummary.innerHTML = `
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                    <path d="M12 2L2 7V17C2 19.21 3.79 21 6 21H18C20.21 21 22 19.21 22 17V7L12 2Z" stroke="currentColor" stroke-width="2"/>
+                </svg>
+                Generate AI Summary
+            `;
+        }
     }
 }
 
 function displayAiSuggestions(summary, steps) {
+    if (!suggestionContent || !aiSuggestions) return;
+    
     suggestionContent.innerHTML = `
         <div class="suggestion-section">
             <h4>Suggested Summary:</h4>
@@ -497,26 +526,35 @@ function displayAiSuggestions(summary, steps) {
 }
 
 function handleApplyAiSuggestions() {
+    if (!suggestionContent) return;
+    
     const sections = suggestionContent.querySelectorAll('.suggestion-section');
     if (sections.length >= 2) {
-        const summary = sections[0].querySelector('p').textContent;
-        const steps = sections[1].querySelector('pre').textContent;
+        const summary = sections[0].querySelector('p')?.textContent || '';
+        const steps = sections[1].querySelector('pre')?.textContent || '';
         
-        if (!bugTitle.value) bugTitle.value = summary;
-        if (!stepsToReproduce.value) stepsToReproduce.value = steps;
+        if (bugTitle && !bugTitle.value) bugTitle.value = summary;
+        if (stepsToReproduce && !stepsToReproduce.value) stepsToReproduce.value = steps;
         
-        aiSuggestions.style.display = 'none';
+        if (aiSuggestions) aiSuggestions.style.display = 'none';
     }
 }
 
 // Download Functions
 async function handleDownloadAll() {
+    if (!downloadBtn) return;
+    
     try {
         downloadBtn.disabled = true;
         downloadBtn.innerHTML = '<div class="loading"></div> Preparing...';
         
+        // Check if JSZip is available
+        if (!window.JSZip) {
+            throw new Error('JSZip library not loaded');
+        }
+        
         // Create a zip file with all data
-        const zip = new JSZip();
+        const zip = new window.JSZip();
         
         // Add video if available
         if (currentRecording.videoBlob) {
@@ -562,29 +600,33 @@ async function handleDownloadAll() {
     } catch (error) {
         showError('Failed to prepare download: ' + error.message);
     } finally {
-        downloadBtn.disabled = false;
-        downloadBtn.innerHTML = `
-            <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                <path d="M21 15V19C21 20.1 20.1 21 19 21H5C3.9 21 3 20.1 3 19V15" stroke="currentColor" stroke-width="2"/>
-                <path d="M7 10L12 15L17 10" stroke="currentColor" stroke-width="2"/>
-                <path d="M12 15V3" stroke="currentColor" stroke-width="2"/>
-            </svg>
-            Download All
-        `;
+        if (downloadBtn) {
+            downloadBtn.disabled = false;
+            downloadBtn.innerHTML = `
+                <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+                    <path d="M21 15V19C21 20.1 20.1 21 19 21H5C3.9 21 3 20.1 3 19V15" stroke="currentColor" stroke-width="2"/>
+                    <path d="M7 10L12 15L17 10" stroke="currentColor" stroke-width="2"/>
+                    <path d="M12 15V3" stroke="currentColor" stroke-width="2"/>
+                </svg>
+                Download All
+            `;
+        }
     }
 }
 
 // Jira Functions
 async function showJiraModal() {
-    jiraModal.classList.add('show');
+    if (jiraModal) jiraModal.classList.add('show');
     await loadJiraProjects();
 }
 
 function hideJiraModal() {
-    jiraModal.classList.remove('show');
+    if (jiraModal) jiraModal.classList.remove('show');
 }
 
 async function loadJiraProjects() {
+    if (!jiraProject) return;
+    
     try {
         jiraProject.innerHTML = '<option value="">Loading projects...</option>';
         jiraProject.disabled = true;
@@ -612,6 +654,8 @@ async function loadJiraProjects() {
 }
 
 async function handleProjectChange() {
+    if (!jiraProject || !jiraIssueType) return;
+    
     const projectKey = jiraProject.value;
     if (!projectKey) {
         jiraIssueType.innerHTML = '<option value="">Select project first...</option>';
@@ -646,21 +690,23 @@ async function handleProjectChange() {
 }
 
 async function handleSubmitJira() {
+    if (!submitJiraTicket) return;
+    
     try {
-        const projectKey = jiraProject.value;
-        const issueTypeName = jiraIssueType.value;
-        const summary = bugTitle.value || 'Bug Report';
+        const projectKey = jiraProject?.value || '';
+        const issueTypeName = jiraIssueType?.value || '';
+        const summary = bugTitle?.value || 'Bug Report';
         const description = `
-${bugDescription.value || 'No description provided'}
+${bugDescription?.value || 'No description provided'}
 
 Steps to Reproduce:
-${stepsToReproduce.value || 'Not specified'}
+${stepsToReproduce?.value || 'Not specified'}
 
 Expected Behavior:
-${expectedBehavior.value || 'Not specified'}
+${expectedBehavior?.value || 'Not specified'}
 
 Actual Behavior:
-${actualBehavior.value || 'Not specified'}
+${actualBehavior?.value || 'Not specified'}
 
 Recording Details:
 - Page: ${currentRecording.pageTitle} (${currentRecording.pageUrl})
@@ -678,10 +724,14 @@ Recording Details:
         submitJiraTicket.disabled = true;
         submitJiraTicket.innerHTML = '<div class="loading"></div> Creating...';
         
+        const attachVideo = document.getElementById('attachVideo');
+        const attachLogs = document.getElementById('attachLogs');
+        const attachDom = document.getElementById('attachDom');
+        
         const attachments = {
-            video: document.getElementById('attachVideo').checked,
-            logs: document.getElementById('attachLogs').checked,
-            dom: document.getElementById('attachDom').checked
+            video: attachVideo?.checked || false,
+            logs: attachLogs?.checked || false,
+            dom: attachDom?.checked || false
         };
         
         const response = await sendMessage('SUBMIT_TO_JIRA', {
@@ -703,8 +753,10 @@ Recording Details:
     } catch (error) {
         showError('Failed to create Jira ticket: ' + error.message);
     } finally {
-        submitJiraTicket.disabled = false;
-        submitJiraTicket.innerHTML = 'Create Ticket';
+        if (submitJiraTicket) {
+            submitJiraTicket.disabled = false;
+            submitJiraTicket.innerHTML = 'Create Ticket';
+        }
     }
 }
 
@@ -722,22 +774,51 @@ function sendMessage(type, payload = {}) {
 }
 
 function showLoading(message) {
-    document.getElementById('loadingMessage').textContent = message;
-    loadingOverlay.classList.remove('hidden');
+    const loadingMessage = document.getElementById('loadingMessage');
+    if (loadingMessage) loadingMessage.textContent = message;
+    if (loadingOverlay) loadingOverlay.classList.remove('hidden');
 }
 
 function hideLoading() {
-    loadingOverlay.classList.add('hidden');
+    if (loadingOverlay) loadingOverlay.classList.add('hidden');
 }
 
 function showError(message) {
     console.error(message);
-    // Could show a toast notification
+    // Create a toast notification
+    const toast = document.createElement('div');
+    toast.className = 'toast toast-error';
+    toast.innerHTML = `
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+            <circle cx="12" cy="12" r="10" stroke="currentColor" stroke-width="2"/>
+            <line x1="15" y1="9" x2="9" y2="15" stroke="currentColor" stroke-width="2"/>
+            <line x1="9" y1="9" x2="15" y2="15" stroke="currentColor" stroke-width="2"/>
+        </svg>
+        ${escapeHtml(message)}
+    `;
+    document.body.appendChild(toast);
+    
+    setTimeout(() => {
+        toast.remove();
+    }, 5000);
 }
 
 function showSuccess(message) {
     console.log(message);
-    // Could show a toast notification
+    // Create a toast notification
+    const toast = document.createElement('div');
+    toast.className = 'toast toast-success';
+    toast.innerHTML = `
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
+            <path d="M20 6L9 17L4 12" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        ${escapeHtml(message)}
+    `;
+    document.body.appendChild(toast);
+    
+    setTimeout(() => {
+        toast.remove();
+    }, 5000);
 }
 
 function formatDuration(ms) {
@@ -768,4 +849,46 @@ function escapeHtml(text) {
     const div = document.createElement('div');
     div.textContent = text;
     return div.innerHTML;
+}
+
+// Add toast styles if not already in CSS
+if (!document.querySelector('#toast-styles')) {
+    const style = document.createElement('style');
+    style.id = 'toast-styles';
+    style.textContent = `
+        .toast {
+            position: fixed;
+            bottom: 20px;
+            right: 20px;
+            padding: 12px 20px;
+            border-radius: 8px;
+            background: #333;
+            color: white;
+            display: flex;
+            align-items: center;
+            gap: 10px;
+            z-index: 10000;
+            animation: slideIn 0.3s ease-out;
+        }
+        
+        .toast-error {
+            background: #ef4444;
+        }
+        
+        .toast-success {
+            background: #10b981;
+        }
+        
+        @keyframes slideIn {
+            from {
+                transform: translateX(100%);
+                opacity: 0;
+            }
+            to {
+                transform: translateX(0);
+                opacity: 1;
+            }
+        }
+    `;
+    document.head.appendChild(style);
 }
