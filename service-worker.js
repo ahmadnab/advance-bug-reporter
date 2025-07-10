@@ -1,21 +1,32 @@
-// service-worker.js - Fixed version without ES modules
+// service-worker.js - Enhanced with rrweb and improved architecture
 
-// Import scripts first
-importScripts(
-  './libs/jszip.min.js',
-  './utils/jiraApi.js',
-  './utils/geminiApi.js',
-  './utils/storageHelper.js',
-  './utils/logFormatter.js',
-  './utils/zipHelper.js'
-);
+// Dynamic imports for Chrome Extension service worker
+let jiraApi, geminiApi, storageHelper, logFormatter, zipHelper;
+
+async function loadModules() {
+  try {
+    jiraApi = await import('./utils/jiraApi.js');
+    geminiApi = await import('./utils/geminiApi.js');
+    storageHelper = await import('./utils/storageHelper.js');
+    logFormatter = await import('./utils/logFormatter.js');
+    zipHelper = await import('./utils/zipHelper.js');
+    console.log('[ServiceWorker] Modules loaded successfully');
+  } catch (error) {
+    console.error('[ServiceWorker] Failed to load modules:', error);
+    throw error;
+  }
+}
+
+// Initialize modules
+loadModules().catch(console.error);
 
 // --- Recording Storage ---
 class RecordingStorage {
   static async saveRecording(recording) {
     const recordings = await this.getAllRecordings();
-    recordings.unshift(recording);
+    recordings.unshift(recording); // Add to beginning
     
+    // Keep only last 10 recordings
     if (recordings.length > 10) {
       recordings.length = 10;
     }
@@ -49,7 +60,7 @@ let recordingState = {
   streamId: null,
   
   // Recording options
-  captureMode: 'tab',
+  captureMode: 'tab', // 'tab', 'window', 'screen'
   recordVideo: true,
   recordDOM: true,
   recordConsole: true,
@@ -58,7 +69,7 @@ let recordingState = {
   // Captured data
   consoleLogs: [],
   networkLogs: [],
-  domEvents: [],
+  domEvents: [], // rrweb events
   videoBlob: null,
   
   // Metadata
@@ -100,7 +111,6 @@ chrome.runtime.onInstalled.addListener(() => {
   });
 });
 
-// Add context menu click handler
 chrome.contextMenus.onClicked.addListener((info, tab) => {
   if (info.menuItemId === 'quick-record' && tab) {
     handleStartRecording(tab.id, { captureMode: 'tab' });
@@ -221,6 +231,7 @@ chrome.debugger.onEvent.addListener((source, method, params) => {
     return;
   }
   
+  // Filter relevant network events
   if (['Network.requestWillBeSent', 'Network.responseReceived', 
        'Network.loadingFinished', 'Network.loadingFailed'].includes(method)) {
     recordingState.networkLogs.push({
@@ -239,11 +250,13 @@ async function handleStartRecording(tabId, options = {}) {
     throw new Error('Recording already in progress');
   }
   
+  // Reset and configure state
   resetRecordingState();
   recordingState.isRecording = true;
   recordingState.recordingStartTime = Date.now();
   recordingState.activeTabId = tabId || (await getActiveTabId());
   
+  // Apply recording options
   Object.assign(recordingState, {
     captureMode: options.captureMode || 'tab',
     recordVideo: options.recordVideo !== false,
@@ -258,10 +271,12 @@ async function handleStartRecording(tabId, options = {}) {
   }
   
   try {
+    // Get tab information
     const tab = await chrome.tabs.get(recordingState.activeTabId);
     recordingState.pageUrl = tab.url;
     recordingState.pageTitle = tab.title;
     
+    // Start appropriate capture method
     if (recordingState.recordVideo) {
       if (recordingState.captureMode === 'tab') {
         await startTabCapture();
@@ -270,17 +285,21 @@ async function handleStartRecording(tabId, options = {}) {
       }
     }
     
+    // Inject scripts for console and DOM recording
     if (recordingState.recordConsole || recordingState.recordDOM) {
       await injectRecordingScripts();
     }
     
+    // Attach debugger for network recording
     if (recordingState.recordNetwork) {
       await attachDebugger();
     }
     
+    // Update badge
     chrome.action.setBadgeText({ text: 'REC' });
     chrome.action.setBadgeBackgroundColor({ color: '#dc2626' });
     
+    // Notify popup
     chrome.runtime.sendMessage({
       type: 'RECORDING_STARTED',
       payload: { tabId: recordingState.activeTabId }
@@ -322,6 +341,15 @@ async function injectRecordingScripts() {
   const scripts = [];
   
   if (recordingState.recordConsole) {
+    // First inject the bridge in ISOLATED world
+    await chrome.scripting.executeScript({
+      target: { tabId: recordingState.activeTabId },
+      files: ['content_scripts/console-bridge.js'],
+      injectImmediately: true,
+      world: 'ISOLATED'
+    });
+    
+    // Then inject the interceptor in MAIN world
     scripts.push('content_scripts/console-interceptor.js');
   }
   
@@ -359,6 +387,7 @@ async function handleStopRecording(forced = false, reason = '') {
   recordingState.isWaitingForVideoData = recordingState.recordVideo;
   
   try {
+    // Stop video recording
     if (recordingState.recordVideo && recordingState.offscreenDocumentCreated) {
       chrome.runtime.sendMessage({
         type: 'stopTabRecording',
@@ -366,6 +395,7 @@ async function handleStopRecording(forced = false, reason = '') {
       });
     }
     
+    // Detach debugger
     if (recordingState.recordNetwork && recordingState.activeTabId) {
       try {
         await chrome.debugger.detach({ tabId: recordingState.activeTabId });
@@ -374,12 +404,14 @@ async function handleStopRecording(forced = false, reason = '') {
       }
     }
     
+    // Get final DOM events if recording
     if (recordingState.recordDOM && recordingState.rrwebScriptInjected) {
       await chrome.tabs.sendMessage(recordingState.activeTabId, {
         type: 'STOP_RRWEB_RECORDING'
       });
     }
     
+    // If not waiting for video, finalize now
     if (!recordingState.isWaitingForVideoData) {
       await finalizeRecording();
     }
@@ -422,12 +454,14 @@ async function finalizeRecording(error = null) {
   
   chrome.action.setBadgeText({ text: '' });
   
+  // Get screen resolution
   const displays = await chrome.system.display.getInfo();
   if (displays.length > 0) {
     const primary = displays.find(d => d.isPrimary) || displays[0];
     recordingState.screenResolution = `${primary.bounds.width}x${primary.bounds.height}`;
   }
   
+  // Save recording
   const recording = {
     id: `rec_${Date.now()}`,
     timestamp: recordingState.recordingStartTime,
@@ -443,6 +477,7 @@ async function finalizeRecording(error = null) {
     error: error
   };
   
+  // Store recording data
   await chrome.storage.local.set({
     [`recording_${recording.id}`]: {
       ...recording,
@@ -455,10 +490,12 @@ async function finalizeRecording(error = null) {
   
   await RecordingStorage.saveRecording(recording);
   
+  // Open review page
   if (!error) {
     await openRecordingReview(recording.id);
   }
   
+  // Notify popup
   chrome.runtime.sendMessage({
     type: 'RECORDING_STOPPED',
     payload: { recordingId: recording.id, error }
@@ -561,6 +598,11 @@ async function closeOffscreenDocumentIfNeeded() {
 
 // --- API Handlers ---
 async function handleGenerateAISuggestions(payload) {
+  // Ensure modules are loaded
+  if (!logFormatter || !storageHelper || !geminiApi) {
+    await loadModules();
+  }
+  
   const { recordingId, summary, description } = payload;
   
   let recordingData;
@@ -574,18 +616,18 @@ async function handleGenerateAISuggestions(payload) {
     };
   }
   
-  const aiApiKey = await self.storageHelper.getAiApiKey();
+  const aiApiKey = await storageHelper.getAiApiKey();
   if (!aiApiKey) {
     throw new Error('AI API Key not configured');
   }
   
-  const promptText = self.logFormatter.formatLogsForAiPrompt(
+  const promptText = logFormatter.formatLogsForAiPrompt(
     recordingData.consoleLogs,
     recordingData.networkLogs,
     { summary, description }
   );
   
-  const { summary: aiSummary, steps: aiSteps } = await self.geminiApi.generateAiSuggestions(
+  const { summary: aiSummary, steps: aiSteps } = await geminiApi.generateAiSuggestions(
     aiApiKey,
     promptText
   );
@@ -594,28 +636,43 @@ async function handleGenerateAISuggestions(payload) {
 }
 
 async function handleFetchJiraProjects() {
-  const jiraCredentials = await self.storageHelper.getJiraCredentials();
+  // Ensure modules are loaded
+  if (!jiraApi || !storageHelper) {
+    await loadModules();
+  }
+  
+  const jiraCredentials = await storageHelper.getJiraCredentials();
   if (!jiraCredentials || !jiraCredentials.baseUrl) {
     throw new Error('Jira not configured');
   }
   
-  return self.jiraApi.getJiraProjects(jiraCredentials);
+  return jiraApi.getJiraProjects(jiraCredentials);
 }
 
 async function handleFetchJiraIssueTypes(projectKey) {
+  // Ensure modules are loaded
+  if (!jiraApi || !storageHelper) {
+    await loadModules();
+  }
+  
   if (!projectKey) {
     throw new Error('Project key required');
   }
   
-  const jiraCredentials = await self.storageHelper.getJiraCredentials();
+  const jiraCredentials = await storageHelper.getJiraCredentials();
   if (!jiraCredentials || !jiraCredentials.baseUrl) {
     throw new Error('Jira not configured');
   }
   
-  return self.jiraApi.getJiraIssueTypesForProject(jiraCredentials, projectKey);
+  return jiraApi.getJiraIssueTypesForProject(jiraCredentials, projectKey);
 }
 
 async function handleSubmitToJira(payload) {
+  // Ensure modules are loaded
+  if (!jiraApi || !storageHelper || !zipHelper) {
+    await loadModules();
+  }
+  
   const {
     recordingId,
     projectKey,
@@ -625,17 +682,19 @@ async function handleSubmitToJira(payload) {
     attachments
   } = payload;
   
-  const jiraCredentials = await self.storageHelper.getJiraCredentials();
+  const jiraCredentials = await storageHelper.getJiraCredentials();
   if (!jiraCredentials || !jiraCredentials.baseUrl) {
     throw new Error('Jira not configured');
   }
   
+  // Get recording data if specified
   let recordingData = null;
   if (recordingId) {
     const stored = await chrome.storage.local.get(`recording_${recordingId}`);
     recordingData = stored[`recording_${recordingId}`];
   }
   
+  // Create issue
   const issueData = {
     projectKey,
     issueTypeName,
@@ -652,13 +711,14 @@ async function handleSubmitToJira(payload) {
     }
   };
   
-  const createdIssue = await self.jiraApi.createJiraIssue(
+  const createdIssue = await jiraApi.createJiraIssue(
     jiraCredentials,
     issueData
   );
   
+  // Add attachments if requested
   if (recordingData && attachments) {
-    const zipBlob = await self.zipHelper.createReportZip(
+    const zipBlob = await zipHelper.createReportZip(
       attachments.video ? recordingData.videoBlob : null,
       attachments.logs ? recordingData.consoleLogs : [],
       attachments.logs ? recordingData.networkLogs : [],
@@ -667,7 +727,7 @@ async function handleSubmitToJira(payload) {
     );
     
     if (zipBlob) {
-      await self.jiraApi.addJiraAttachment(
+      await jiraApi.addJiraAttachment(
         jiraCredentials,
         createdIssue.key,
         zipBlob,
