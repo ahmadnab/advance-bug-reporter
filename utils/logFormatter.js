@@ -1,10 +1,18 @@
-// utils/logFormatter.js - Converted for importScripts compatibility
-(function(global) {
+// utils/logFormatter.js
+// This module provides utility functions for formatting console and network logs
+// for reports and AI prompts.
+
+// Create global namespace
+if (!window.BugReporter) window.BugReporter = {};
+if (!window.BugReporter.utils) window.BugReporter.utils = {};
+
+window.BugReporter.utils.logFormatter = (function() {
     'use strict';
 
     /**
      * Formats an array of console log objects into a human-readable string.
      * @param {Array<object>} consoleLogs - Array of console log objects.
+     * Each object: { timestamp, level, args (array), url }
      * @returns {string} A formatted string representation of console logs.
      */
     function formatConsoleLogsForReport(consoleLogs) {
@@ -35,7 +43,7 @@
     }
 
     /**
-     * Formats an array of network log objects into a human-readable string.
+     * Formats an array of network log objects (from chrome.debugger) into a human-readable string or structured summary.
      * @param {Array<object>} networkLogs - Array of network log event objects.
      * @returns {string} A formatted string representation of network logs.
      */
@@ -58,14 +66,14 @@
 
         for (const requestId in requests) {
             const events = requests[requestId];
-            const requestWillBeSent = events.find(e => e.type === 'requestWillBeSent');
-            const responseReceived = events.find(e => e.type === 'responseReceived');
-            const loadingFinished = events.find(e => e.type === 'loadingFinished');
-            const loadingFailed = events.find(e => e.type === 'loadingFailed');
+            const requestWillBeSent = events.find(e => e.type === 'Network.requestWillBeSent');
+            const responseReceived = events.find(e => e.type === 'Network.responseReceived');
+            const loadingFinished = events.find(e => e.type === 'Network.loadingFinished');
+            const loadingFailed = events.find(e => e.type === 'Network.loadingFailed');
 
             if (requestWillBeSent) {
-                const req = requestWillBeSent.request;
-                const time = new Date(requestWillBeSent.wallTime * 1000).toLocaleTimeString();
+                const req = requestWillBeSent.params.request;
+                const time = new Date(requestWillBeSent.timestamp).toLocaleTimeString();
                 reportString += `\n[${time}] Request ID: ${requestId}\n`;
                 reportString += `  URL: ${req.url}\n`;
                 reportString += `  Method: ${req.method}\n`;
@@ -75,22 +83,17 @@
             }
 
             if (responseReceived) {
-                const res = responseReceived.response;
+                const res = responseReceived.params.response;
                 reportString += `  Status: ${res.status} ${res.statusText}\n`;
                 reportString += `  MIME Type: ${res.mimeType}\n`;
-                if (res.timing) {
-                    const timing = res.timing;
-                    const totalTime = timing.receiveHeadersEnd - timing.requestTime;
-                    reportString += `  Timing: Approx. Total: ${totalTime ? totalTime.toFixed(2) : 'N/A'} ms\n`;
-                }
             }
 
             if (loadingFinished) {
-                reportString += `  Finished: Encoded Data Length: ${loadingFinished.encodedDataLength} bytes\n`;
+                reportString += `  Finished: Encoded Data Length: ${loadingFinished.params.encodedDataLength} bytes\n`;
             }
 
             if (loadingFailed) {
-                reportString += `  Failed: ${loadingFailed.errorText} (Canceled: ${loadingFailed.canceled})\n`;
+                reportString += `  Failed: ${loadingFailed.params.errorText} (Canceled: ${loadingFailed.params.canceled})\n`;
             }
             reportString += `----------------------------------------\n`;
         }
@@ -99,7 +102,7 @@
     }
 
     /**
-     * Formats logs into a prompt for AI service.
+     * Formats console and network logs, along with user notes, into a single text prompt for an AI service.
      * @param {Array<object>} consoleLogs
      * @param {Array<object>} networkLogs
      * @param {object} userNote - Object containing { summary: string, description: string }
@@ -157,17 +160,17 @@
                     prompt += `(... and more network requests)\n`;
                     break;
                 }
-                const reqData = requests[requestId]['requestWillBeSent'];
-                const resData = requests[requestId]['responseReceived'];
-                const failData = requests[requestId]['loadingFailed'];
+                const reqData = requests[requestId]['Network.requestWillBeSent'];
+                const resData = requests[requestId]['Network.responseReceived'];
+                const failData = requests[requestId]['Network.loadingFailed'];
 
                 if (reqData) {
-                    let entry = `${reqData.request.method} ${reqData.request.url.substring(0,100)}${reqData.request.url.length > 100 ? '...' : ''}`;
+                    let entry = `${reqData.params.request.method} ${reqData.params.request.url.substring(0,100)}${reqData.params.request.url.length > 100 ? '...' : ''}`;
                     if (resData) {
-                        entry += ` -> ${resData.response.status} ${resData.response.statusText}`;
+                        entry += ` -> ${resData.params.response.status} ${resData.params.response.statusText}`;
                     }
                     if (failData) {
-                        entry += ` -> FAILED: ${failData.errorText}`;
+                        entry += ` -> FAILED: ${failData.params.errorText}`;
                     }
                     prompt += `${entry}\n`;
                     networkEntryCount++;
@@ -187,12 +190,18 @@
         return prompt;
     }
 
-    // Export to global scope
-    global.logFormatter = {
-        formatConsoleLogsForReport: formatConsoleLogsForReport,
-        formatNetworkLogsForReport: formatNetworkLogsForReport,
-        formatLogsForAiPrompt: formatLogsForAiPrompt
-    };
+    console.log('logFormatter.js loaded');
 
-    console.log('logFormatter.js loaded (non-module version)');
-})(self);
+    // Public API
+    return {
+        formatConsoleLogsForReport,
+        formatNetworkLogsForReport,
+        formatLogsForAiPrompt
+    };
+})();
+
+// For service worker compatibility
+if (typeof self !== 'undefined' && self.BugReporter === undefined) {
+    self.BugReporter = { utils: {} };
+    self.BugReporter.utils.logFormatter = window.BugReporter.utils.logFormatter;
+}

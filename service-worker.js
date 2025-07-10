@@ -1,24 +1,29 @@
 // service-worker.js - Enhanced with rrweb and improved architecture
 
-// Dynamic imports for Chrome Extension service worker
-let jiraApi, geminiApi, storageHelper, logFormatter, zipHelper;
+// Import helper modules using importScripts
+importScripts(
+    './utils/storageHelper.js',
+    './utils/logFormatter.js',
+    './utils/geminiApi.js',
+    './utils/jiraApi.js',
+    './utils/zipHelper.js'
+);
 
-async function loadModules() {
-  try {
-    jiraApi = await import('./utils/jiraApi.js');
-    geminiApi = await import('./utils/geminiApi.js');
-    storageHelper = await import('./utils/storageHelper.js');
-    logFormatter = await import('./utils/logFormatter.js');
-    zipHelper = await import('./utils/zipHelper.js');
-    console.log('[ServiceWorker] Modules loaded successfully');
-  } catch (error) {
-    console.error('[ServiceWorker] Failed to load modules:', error);
-    throw error;
-  }
+// Import debug helper in development
+if (chrome.runtime.getManifest().version.includes('0.0')) {
+    try {
+        importScripts('./utils/debug-helper.js');
+    } catch (e) {
+        console.log('Debug helper not loaded:', e);
+    }
 }
 
-// Initialize modules
-loadModules().catch(console.error);
+// Create aliases for easier access
+const storageHelper = self.BugReporter.utils.storageHelper;
+const logFormatter = self.BugReporter.utils.logFormatter;
+const geminiApi = self.BugReporter.utils.geminiApi;
+const jiraApi = self.BugReporter.utils.jiraApi;
+const zipHelper = self.BugReporter.utils.zipHelper;
 
 // --- Recording Storage ---
 class RecordingStorage {
@@ -341,15 +346,6 @@ async function injectRecordingScripts() {
   const scripts = [];
   
   if (recordingState.recordConsole) {
-    // First inject the bridge in ISOLATED world
-    await chrome.scripting.executeScript({
-      target: { tabId: recordingState.activeTabId },
-      files: ['content_scripts/console-bridge.js'],
-      injectImmediately: true,
-      world: 'ISOLATED'
-    });
-    
-    // Then inject the interceptor in MAIN world
     scripts.push('content_scripts/console-interceptor.js');
   }
   
@@ -598,11 +594,6 @@ async function closeOffscreenDocumentIfNeeded() {
 
 // --- API Handlers ---
 async function handleGenerateAISuggestions(payload) {
-  // Ensure modules are loaded
-  if (!logFormatter || !storageHelper || !geminiApi) {
-    await loadModules();
-  }
-  
   const { recordingId, summary, description } = payload;
   
   let recordingData;
@@ -636,11 +627,6 @@ async function handleGenerateAISuggestions(payload) {
 }
 
 async function handleFetchJiraProjects() {
-  // Ensure modules are loaded
-  if (!jiraApi || !storageHelper) {
-    await loadModules();
-  }
-  
   const jiraCredentials = await storageHelper.getJiraCredentials();
   if (!jiraCredentials || !jiraCredentials.baseUrl) {
     throw new Error('Jira not configured');
@@ -650,11 +636,6 @@ async function handleFetchJiraProjects() {
 }
 
 async function handleFetchJiraIssueTypes(projectKey) {
-  // Ensure modules are loaded
-  if (!jiraApi || !storageHelper) {
-    await loadModules();
-  }
-  
   if (!projectKey) {
     throw new Error('Project key required');
   }
@@ -668,11 +649,6 @@ async function handleFetchJiraIssueTypes(projectKey) {
 }
 
 async function handleSubmitToJira(payload) {
-  // Ensure modules are loaded
-  if (!jiraApi || !storageHelper || !zipHelper) {
-    await loadModules();
-  }
-  
   const {
     recordingId,
     projectKey,

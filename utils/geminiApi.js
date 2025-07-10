@@ -1,7 +1,15 @@
-// utils/geminiApi.js - Converted for importScripts compatibility
-(function(global) {
+// utils/geminiApi.js
+// This module handles communication with the Google Gemini API
+// for generating AI-assisted bug report content.
+
+// Create global namespace
+if (!window.BugReporter) window.BugReporter = {};
+if (!window.BugReporter.utils) window.BugReporter.utils = {};
+
+window.BugReporter.utils.geminiApi = (function() {
     'use strict';
 
+    // The specific model can be adjusted based on needs
     const GEMINI_API_ENDPOINT_TEMPLATE = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash-latest:generateContent?key=";
 
     /**
@@ -52,6 +60,7 @@
 
             const responseData = await response.json();
 
+            // Extract the generated text from the response
             if (responseData.candidates && responseData.candidates.length > 0 &&
                 responseData.candidates[0].content && responseData.candidates[0].content.parts &&
                 responseData.candidates[0].content.parts.length > 0) {
@@ -68,7 +77,6 @@
                 if (summaryMatch && summaryMatch[1]) {
                     aiSummary = summaryMatch[1].trim();
                 } else {
-                    // Fallback if specific summary header not found
                     const firstParagraph = generatedText.split(/\n\n/)[0];
                     if (firstParagraph && !firstParagraph.toLowerCase().includes("steps to reproduce")) {
                         aiSummary = firstParagraph.trim();
@@ -79,7 +87,6 @@
                 if (stepsMatch && stepsMatch[1]) {
                     aiSteps = stepsMatch[1].trim();
                 } else {
-                    // Fallback if specific steps header not found
                     const potentialSteps = generatedText.substring(aiSummary.length).trim();
                     if (potentialSteps.toLowerCase().startsWith("steps") || potentialSteps.match(/^\d\./)) {
                         aiSteps = potentialSteps;
@@ -94,7 +101,6 @@
                     }
                 }
 
-                // Clean up summary if it grabbed too much
                 if (aiSummary.includes("Numbered steps to reproduce")) {
                     aiSummary = aiSummary.split("Numbered steps to reproduce")[0].trim();
                 }
@@ -115,10 +121,16 @@
         }
     }
 
-    // Export to global scope
-    global.geminiApi = {
-        generateAiSuggestions: generateAiSuggestions
-    };
+    console.log('geminiApi.js loaded');
 
-    console.log('geminiApi.js loaded (non-module version)');
-})(self);
+    // Public API
+    return {
+        generateAiSuggestions
+    };
+})();
+
+// For service worker compatibility
+if (typeof self !== 'undefined' && self.BugReporter === undefined) {
+    self.BugReporter = { utils: {} };
+    self.BugReporter.utils.geminiApi = window.BugReporter.utils.geminiApi;
+}

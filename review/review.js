@@ -1,5 +1,66 @@
 // review/review.js - Recording Review Interface
-import { formatConsoleLogsForReport, formatNetworkLogsForReport } from '../utils/logFormatter.js';
+
+// Wait for dependencies to load
+let formatConsoleLogsForReport, formatNetworkLogsForReport;
+
+// Load utilities
+function loadUtilities() {
+    // Try to load from BugReporter namespace
+    if (window.BugReporter && window.BugReporter.utils) {
+        formatConsoleLogsForReport = window.BugReporter.utils.logFormatter.formatConsoleLogsForReport;
+        formatNetworkLogsForReport = window.BugReporter.utils.logFormatter.formatNetworkLogsForReport;
+    } else {
+        // If not available, define inline versions
+        formatConsoleLogsForReport = function(consoleLogs) {
+            if (!consoleLogs || consoleLogs.length === 0) {
+                return "No console logs captured.\n";
+            }
+            let reportString = "Console Logs:\n========================================\n";
+            consoleLogs.forEach(log => {
+                const time = new Date(log.timestamp).toLocaleTimeString();
+                const level = log.level.toUpperCase();
+                const argsString = log.args.join(' ');
+                reportString += `[${time}] [${level}] ${argsString}\n`;
+            });
+            reportString += "========================================\n";
+            return reportString;
+        };
+
+        formatNetworkLogsForReport = function(networkLogs) {
+            if (!networkLogs || networkLogs.length === 0) {
+                return "No network logs captured.\n";
+            }
+            let reportString = "Network Activity Log:\n========================================\n";
+            networkLogs.forEach(log => {
+                reportString += `${log.type}: ${JSON.stringify(log.params, null, 2)}\n`;
+            });
+            reportString += "========================================\n";
+            return reportString;
+        };
+    }
+}
+
+// Load JSZip dynamically
+function loadJSZip() {
+    return new Promise((resolve, reject) => {
+        if (window.JSZip) {
+            resolve(window.JSZip);
+            return;
+        }
+
+        const script = document.createElement('script');
+        script.src = chrome.runtime.getURL('libs/jszip.esm.js');
+        script.onload = () => {
+            if (window.JSZip) {
+                resolve(window.JSZip);
+            } else {
+                reject(new Error('JSZip failed to load'));
+            }
+        };
+        script.onerror = () => reject(new Error('Failed to load JSZip script'));
+        document.head.appendChild(script);
+    });
+}
 
 // Get recording ID from URL
 const urlParams = new URLSearchParams(window.location.search);
@@ -14,6 +75,7 @@ let currentRecording = null;
 let currentPanel = 'player';
 let currentPlayer = 'video';
 let rrwebPlayer = null;
+let JSZip = null;
 
 // DOM Elements
 const loadingOverlay = document.getElementById('loadingOverlay');
@@ -81,6 +143,17 @@ init();
 async function init() {
     try {
         showLoading('Loading recording data...');
+        
+        // Load utilities
+        loadUtilities();
+        
+        // Load JSZip
+        try {
+            JSZip = await loadJSZip();
+            console.log('JSZip loaded successfully');
+        } catch (error) {
+            console.error('Failed to load JSZip:', error);
+        }
         
         // Load recording data
         await loadRecording();
@@ -511,6 +584,11 @@ function handleApplyAiSuggestions() {
 
 // Download Functions
 async function handleDownloadAll() {
+    if (!JSZip) {
+        showError('JSZip not loaded. Cannot create download package.');
+        return;
+    }
+    
     try {
         downloadBtn.disabled = true;
         downloadBtn.innerHTML = '<div class="loading"></div> Preparing...';

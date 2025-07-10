@@ -1,5 +1,12 @@
-// utils/storageHelper.js - Converted for importScripts compatibility
-(function(global) {
+// utils/storageHelper.js
+// This module provides utility functions for interacting with chrome.storage.local
+// to manage extension settings like API keys and Jira credentials.
+
+// Create global namespace
+if (!window.BugReporter) window.BugReporter = {};
+if (!window.BugReporter.utils) window.BugReporter.utils = {};
+
+window.BugReporter.utils.storageHelper = (function() {
     'use strict';
 
     /**
@@ -92,7 +99,7 @@
     }
 
     /**
-     * Saves a generic setting.
+     * Example function to save a generic setting.
      * @param {string} key - The key under which to store the setting.
      * @param {*} value - The value to store.
      * @returns {Promise<void>}
@@ -112,7 +119,7 @@
     }
 
     /**
-     * Retrieves a generic setting.
+     * Example function to retrieve a generic setting.
      * @param {string} key - The key of the setting to retrieve.
      * @returns {Promise<*|null>} The value of the setting, or null.
      */
@@ -129,15 +136,21 @@
         });
     }
 
-    // Export to global scope
-    global.storageHelper = {
-        saveJiraCredentials: saveJiraCredentials,
-        getJiraCredentials: getJiraCredentials,
-        saveAiApiKey: saveAiApiKey,
-        getAiApiKey: getAiApiKey,
-        saveSetting: saveSetting,
-        getSetting: getSetting
-    };
+    console.log('storageHelper.js loaded');
 
-    console.log('storageHelper.js loaded (non-module version)');
-})(self);
+    // Public API
+    return {
+        saveJiraCredentials,
+        getJiraCredentials,
+        saveAiApiKey,
+        getAiApiKey,
+        saveSetting,
+        getSetting
+    };
+})();
+
+// For service worker compatibility
+if (typeof self !== 'undefined' && self.BugReporter === undefined) {
+    self.BugReporter = { utils: {} };
+    self.BugReporter.utils.storageHelper = window.BugReporter.utils.storageHelper;
+}
