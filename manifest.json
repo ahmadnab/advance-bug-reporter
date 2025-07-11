@@ -54,7 +54,11 @@
           "libs/jszip.esm.js",
           "review/review.html",
           "review/review.css",
-          "review/review.js"
+          "review/review.js",
+          "injected_scripts/console-main-world.js",
+          "injected_scripts/rrweb-recorder-main-world.js",
+          "injected_scripts/rrweb-indicator.js",
+          "injected_scripts/rrweb-stop.js"
         ],
         "matches": ["<all_urls>"]
       }

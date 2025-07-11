@@ -145,19 +145,23 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true;
       
     case 'CONSOLE_LOG_CAPTURED':
+      console.log('[ServiceWorker] CONSOLE_LOG_CAPTURED received:', message.payload);
       if (recordingState.isRecording && recordingState.recordConsole) {
         recordingState.consoleLogs.push({
           ...message.payload,
           relativeTime: Date.now() - recordingState.recordingStartTime
         });
       }
-      break;
+      sendResponse({ success: true, received: message.type }); 
+      return true; 
       
     case 'RRWEB_EVENTS':
+      console.log('[ServiceWorker] RRWEB_EVENTS received, event count:', message.payload ? message.payload.length : 0);
       if (recordingState.isRecording && recordingState.recordDOM) {
         recordingState.domEvents.push(...message.payload);
       }
-      break;
+      sendResponse({ success: true, received: message.type }); 
+      return true; 
       
     case 'VIDEO_BUFFER_READY':
       handleVideoBufferReady(message.payload);
@@ -575,10 +579,14 @@ async function setupOffscreenDocument(streamId) {
       type: 'startTabRecording',
       target: 'offscreen',
       streamId: streamId
-    }).catch(() => {
-      // Handle error if offscreen is not ready
+    }).catch(error => {
+      console.error('[ServiceWorker] Error sending startTabRecording to offscreen document. Offscreen might not be ready or an error occurred.', error);
+      // Consider sending an error message back to UI or handling this state
+      recordingState.isRecording = false; // Stop recording if offscreen setup fails
+      chrome.action.setBadgeText({ text: '' });
+      // Potentially call finalizeRecording with an error
     });
-  }, 100);
+  }, 100); // Keeping timeout for now, but ideally replace with a ready signal from offscreen
 }
 
 async function closeOffscreenDocumentIfNeeded() {

@@ -12,88 +12,17 @@
     
     // Create and inject script into the page's MAIN world
     const script = document.createElement('script');
-    script.textContent = `
-    (() => {
-        // Check if the interceptor has already been injected in MAIN world
-        if (window.__hasInjectedConsoleInterceptor) {
-            return;
-        }
-        window.__hasInjectedConsoleInterceptor = true;
-        console.log('[ConsoleInterceptor] Script injected in MAIN world.');
-        
-        const originalConsole = {};
-        const consoleMethodsToOverride = ['log', 'warn', 'error', 'info', 'debug', 'assert', 'clear', 'count', 'countReset', 'dir', 'dirxml', 'group', 'groupCollapsed', 'groupEnd', 'table', 'time', 'timeEnd', 'timeLog', 'trace'];
-        
-        function serializeArg(arg) {
-            if (arg === undefined) { return 'undefined'; }
-            if (arg === null) { return 'null'; }
-            if (typeof arg === 'function') { return \`[Function: \${arg.name || 'anonymous'}]\`; }
-            if (arg instanceof Error) { 
-                return \`[Error: \${arg.name} - \${arg.message}\${arg.stack ? \`\\nStack: \${arg.stack}\` : ''}]\`; 
-            }
-            if (arg instanceof HTMLElement) {
-                let attributes = ''; 
-                if (arg.attributes) { 
-                    for (let i = 0; i < arg.attributes.length; i++) { 
-                        attributes += \` \${arg.attributes[i].name}="\${arg.attributes[i].value}"\`; 
-                    } 
-                }
-                return \`<\${arg.tagName.toLowerCase()}\${attributes}>...</\${arg.tagName.toLowerCase()}>\`;
-            }
-            if (typeof arg === 'object') {
-                try { 
-                    return JSON.parse(JSON.stringify(arg)); 
-                } catch (e) {
-                    if (Array.isArray(arg)) { 
-                        return \`[Array(\${arg.length})]\`; 
-                    }
-                    return \`[Object: \${Object.prototype.toString.call(arg).slice(8, -1)}]\`;
-                }
-            }
-            return arg;
-        }
-        
-        consoleMethodsToOverride.forEach(methodName => {
-            if (typeof console[methodName] === 'function') {
-                originalConsole[methodName] = console[methodName].bind(console);
-                
-                console[methodName] = (...args) => {
-                    // 1. Call original
-                    try {
-                        originalConsole[methodName](...args);
-                    } catch (e) {
-                        // Ignore errors in original console
-                    }
-                    
-                    // 2. Serialize arguments
-                    let serializableArgs;
-                    try {
-                        serializableArgs = args.map(arg => serializeArg(arg));
-                    } catch (e) {
-                        serializableArgs = [\`[Error serializing console arguments: \${e.message}]\`];
-                    }
-                    
-                    // 3. Send to content script via custom event
-                    const logPayload = {
-                        level: methodName,
-                        args: serializableArgs,
-                        timestamp: new Date().toISOString(),
-                        url: window.location.href
-                    };
-                    
-                    window.postMessage({
-                        type: '__CONSOLE_LOG_INTERCEPTED__',
-                        payload: logPayload
-                    }, '*');
-                };
-            }
-        });
-    })();
-    `;
+    script.src = chrome.runtime.getURL('injected_scripts/console-main-world.js');
     
     // Inject the script
     (document.head || document.documentElement).appendChild(script);
-    script.remove();
+    script.onload = () => {
+        // Optional: remove script tag after loading to keep DOM clean
+        script.remove();
+    };
+    script.onerror = (e) => {
+        console.error('[ConsoleInterceptor] Failed to load console-main-world.js:', e);
+    };
     
     // Listen for messages from the injected script
     window.addEventListener('message', (event) => {
@@ -104,12 +33,15 @@
         if (event.data && event.data.type === '__CONSOLE_LOG_INTERCEPTED__') {
             // Forward to service worker
             try {
+                console.log('[ConsoleInterceptor] Sending CONSOLE_LOG_CAPTURED to service worker. Payload:', event.data.payload);
                 chrome.runtime.sendMessage({
                     type: 'CONSOLE_LOG_CAPTURED',
                     payload: event.data.payload
                 }, response => {
                     if (chrome.runtime.lastError) {
-                        console.error('[ConsoleInterceptor] Failed to send log to service worker:', chrome.runtime.lastError.message);
+                        console.error('[ConsoleInterceptor] Failed to send log to service worker. Error:', chrome.runtime.lastError);
+                    } else {
+                        console.log('[ConsoleInterceptor] Service worker response for CONSOLE_LOG_CAPTURED:', response);
                     }
                 });
             } catch (e) {

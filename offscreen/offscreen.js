@@ -1,5 +1,5 @@
 // offscreen/offscreen.js
-console.log('Offscreen document script loaded.');
+console.log('[Offscreen] Script loaded.');
 
 let mediaRecorder;
 let recordedChunks = [];
@@ -9,107 +9,179 @@ let mediaStream; // To keep track of the stream
 chrome.runtime.onMessage.addListener(handleMessages);
 
 async function handleMessages(message, sender, sendResponse) {
-    console.log('[Offscreen] Received message:', message.type, message.payload || '');
+    console.log(`[Offscreen] handleMessages: Received message type: ${message.type}, target: ${message.target}`, message.payload || '');
+    console.log(`[Offscreen] handleMessages: Current state - mediaStream: ${mediaStream ? 'exists' : 'null'}, mediaRecorder: ${mediaRecorder ? mediaRecorder.state : 'null'}`);
+
     if (message.target !== 'offscreen') {
+        console.log('[Offscreen] Message not targeted for offscreen, ignoring.');
         return;
     }
 
     switch (message.type) {
         case 'startTabRecording':
+            console.log('[Offscreen] startTabRecording: Initiating.');
             try {
-                // ... (start recording logic remains the same) ...
                 if (mediaRecorder && mediaRecorder.state === 'recording') {
-                    console.warn('[Offscreen] Recording already in progress. Stopping existing.');
-                    mediaRecorder.stop();
-                    await new Promise(resolve => { /* ... wait ... */ });
+                    console.warn('[Offscreen] startTabRecording: Recording already in progress. Stopping existing one first.');
+                    mediaRecorder.stop(); // This will trigger onstop, which should clean up.
+                    // It might be better to await a full stop or handle this more gracefully
+                    await new Promise(resolve => setTimeout(resolve, 100)); // Short delay for cleanup
                 }
-                console.log('[Offscreen] Starting tab recording with streamId:', message.streamId);
-                const stream = await navigator.mediaDevices.getUserMedia({ /* ... constraints ... */ });
+                
+                console.log('[Offscreen] startTabRecording: Attempting to get user media with streamId:', message.streamId);
+                const stream = await navigator.mediaDevices.getUserMedia({
+                    video: {
+                        mandatory: {
+                            chromeMediaSource: 'tab',
+                            chromeMediaSourceId: message.streamId
+                        }
+                    },
+                    audio: {
+                        mandatory: {
+                            chromeMediaSource: 'tab',
+                            chromeMediaSourceId: message.streamId
+                        }
+                    }
+                });
                 mediaStream = stream;
-                stream.oninactive = () => { /* ... stop recorder ... */ };
-                const options = { mimeType: 'video/webm; codecs=vp9,opus' };
-                // ... (mime type fallback logic) ...
-                const actualMimeType = options.mimeType || 'video/webm';
-                mediaRecorder = new MediaRecorder(stream, options);
-                recordedChunks = [];
-                mediaRecorder.ondataavailable = (event) => { /* ... push chunks ... */ };
+                console.log('[Offscreen] startTabRecording: getUserMedia successful. mediaStream acquired.');
 
-                // --- Modified onstop handler ---
-                mediaRecorder.onstop = async () => { // Make handler async
-                    console.log('[Offscreen] MediaRecorder stopped. Total chunks:', recordedChunks.length);
+                stream.oninactive = () => {
+                    console.log('[Offscreen] stream.oninactive called. Stopping recorder if active.');
+                    if (mediaRecorder && mediaRecorder.state === 'recording') {
+                        mediaRecorder.stop();
+                    }
+                };
+                
+                const options = { mimeType: 'video/webm; codecs=vp9,opus' };
+                // Basic fallback, could be more sophisticated
+                if (!MediaRecorder.isTypeSupported(options.mimeType)) {
+                    console.warn(`[Offscreen] MIME type ${options.mimeType} not supported. Falling back.`);
+                    options.mimeType = 'video/webm'; 
+                }
+                const actualMimeType = options.mimeType;
+                console.log('[Offscreen] startTabRecording: Using MIME type:', actualMimeType);
+
+                console.log('[Offscreen] startTabRecording: Creating MediaRecorder.');
+                mediaRecorder = new MediaRecorder(stream, options);
+                console.log(`[Offscreen] startTabRecording: MediaRecorder created. Initial state: ${mediaRecorder.state}`);
+                
+                recordedChunks = [];
+                
+                mediaRecorder.ondataavailable = (event) => {
+                    console.log(`[Offscreen] mediaRecorder.ondataavailable: Fired. Chunk size: ${event.data.size}`);
+                    if (event.data.size > 0) {
+                        recordedChunks.push(event.data);
+                    }
+                };
+
+                mediaRecorder.onstop = async () => {
+                    console.log(`[Offscreen] mediaRecorder.onstop: Fired. Current state: ${mediaRecorder ? mediaRecorder.state : 'recorder gone'}. Total chunks: ${recordedChunks.length}`);
                     if (recordedChunks.length > 0) {
                         const completeBlob = new Blob(recordedChunks, { type: actualMimeType });
-                        console.log('[Offscreen] Complete video blob created, size:', completeBlob.size, 'type:', completeBlob.type);
+                        console.log(`[Offscreen] mediaRecorder.onstop: Complete video blob created. Size: ${completeBlob.size}, Type: ${completeBlob.type}`);
 
                         try {
-                            // Convert Blob to ArrayBuffer
                             const buffer = await completeBlob.arrayBuffer();
-                            console.log('[Offscreen] Converted Blob to ArrayBuffer, size:', buffer.byteLength);
+                            console.log(`[Offscreen] mediaRecorder.onstop: Converted Blob to ArrayBuffer. Size: ${buffer.byteLength}`);
 
-                            // Send ArrayBuffer and original MIME type
                             chrome.runtime.sendMessage({
-                                type: 'VIDEO_BUFFER_READY', // *** NEW MESSAGE TYPE ***
+                                type: 'VIDEO_BUFFER_READY',
                                 target: 'service-worker',
-                                payload: {
-                                    buffer: buffer,
-                                    mimeType: actualMimeType
-                                }
+                                payload: { buffer: buffer, mimeType: actualMimeType }
                             }, response => {
                                  if (chrome.runtime.lastError) {
-                                    console.error('[Offscreen] Error sending VIDEO_BUFFER_READY message:', chrome.runtime.lastError.message);
+                                    console.error('[Offscreen] mediaRecorder.onstop: Error sending VIDEO_BUFFER_READY:', chrome.runtime.lastError.message);
                                  } else {
-                                    console.log('[Offscreen] VIDEO_BUFFER_READY message sent successfully.');
+                                    console.log('[Offscreen] mediaRecorder.onstop: VIDEO_BUFFER_READY message sent successfully.');
                                  }
                             });
                         } catch (error) {
-                             console.error('[Offscreen] Error converting Blob to ArrayBuffer or sending:', error);
+                             console.error('[Offscreen] mediaRecorder.onstop: Error processing blob or sending message:', error);
                              chrome.runtime.sendMessage({
                                 type: 'RECORDING_ERROR',
                                 target: 'service-worker',
-                                error: 'Failed to process video blob data in offscreen document.'
+                                error: 'Failed to process video blob in offscreen.js'
                             });
                         }
                     } else {
-                        console.warn("[Offscreen] No data chunks recorded. Sending error.");
-                         chrome.runtime.sendMessage({ /* ... RECORDING_ERROR ... */ });
+                        console.warn("[Offscreen] mediaRecorder.onstop: No data chunks recorded. Sending error.");
+                         chrome.runtime.sendMessage({
+                            type: 'RECORDING_ERROR',
+                            target: 'service-worker',
+                            error: 'No video data recorded in offscreen.js'
+                         });
                     }
                     // Clean up
+                    console.log('[Offscreen] mediaRecorder.onstop: Cleaning up resources.');
                     recordedChunks = [];
-                    if (mediaStream) { /* ... stop tracks ... */ }
-                    mediaRecorder = null;
+                    if (mediaStream) {
+                        mediaStream.getTracks().forEach(track => track.stop());
+                        console.log('[Offscreen] mediaRecorder.onstop: MediaStream tracks stopped.');
+                    }
+                    mediaStream = null;
+                    // mediaRecorder is already stopped, setting to null might be redundant if a new one is created
+                    // but good for explicit cleanup if stop is called without immediate restart.
+                    mediaRecorder = null; 
+                    console.log('[Offscreen] mediaRecorder.onstop: mediaStream and mediaRecorder set to null.');
                 };
-                // --- End of modified onstop handler ---
 
-                mediaRecorder.onerror = (event) => { /* ... error handling ... */ };
+                mediaRecorder.onerror = (event) => {
+                    console.error('[Offscreen] mediaRecorder.onerror: Recording error:', event.error);
+                    chrome.runtime.sendMessage({
+                        type: 'RECORDING_ERROR',
+                        target: 'service-worker',
+                        error: `MediaRecorder error in offscreen: ${event.error.name} - ${event.error.message}`
+                    });
+                    // No need to call stop() here, onerror usually precedes onstop or implies it.
+                };
+                
+                console.log('[Offscreen] startTabRecording: Starting MediaRecorder.');
                 mediaRecorder.start();
-                console.log('[Offscreen] MediaRecorder started, state:', mediaRecorder.state);
-                sendResponse({ success: true, message: 'Recording started.' });
+                console.log(`[Offscreen] startTabRecording: MediaRecorder started. Current state: ${mediaRecorder.state}`);
+                sendResponse({ success: true, message: 'Recording started in offscreen.' });
 
-            } catch (error) { /* ... error handling ... */ }
-            break; // End of startTabRecording case
-
-        case 'stopTabRecording':
-             // ... (stopTabRecording logic remains the same) ...
-            console.log('[Offscreen] Received stopTabRecording message.');
-            if (mediaRecorder && mediaRecorder.state === 'recording') {
-                mediaRecorder.stop(); // This triggers 'onstop'
-                console.log('[Offscreen] MediaRecorder stop() called.');
-                sendResponse({ success: true, message: 'Recording stopping.' });
-            } else {
-                console.warn('[Offscreen] MediaRecorder not recording or not initialized when stop called.');
+            } catch (error) {
+                console.error('[Offscreen] startTabRecording: Error during setup:', error);
+                // Ensure cleanup if error occurs mid-setup
                 if (mediaStream) {
                     mediaStream.getTracks().forEach(track => track.stop());
                     mediaStream = null;
                 }
-                sendResponse({ success: false, message: 'Recorder was not active.' });
+                mediaRecorder = null;
+                sendResponse({ success: false, error: `Failed to start recording in offscreen: ${error.message}` });
             }
-            break; // End of stopTabRecording case
+            break;
+
+        case 'stopTabRecording':
+            console.log(`[Offscreen] stopTabRecording: Received. Current mediaRecorder state: ${mediaRecorder ? mediaRecorder.state : 'null'}`);
+            if (mediaRecorder && mediaRecorder.state === 'recording') {
+                console.log('[Offscreen] stopTabRecording: MediaRecorder is recording, calling stop().');
+                mediaRecorder.stop(); // This triggers 'onstop'
+                sendResponse({ success: true, message: 'Recording stopping in offscreen.' });
+            } else {
+                console.warn(`[Offscreen] stopTabRecording: MediaRecorder not recording or not initialized. State: ${mediaRecorder ? mediaRecorder.state : 'null'}`);
+                if (mediaStream) {
+                    console.log('[Offscreen] stopTabRecording: mediaStream exists, stopping tracks.');
+                    mediaStream.getTracks().forEach(track => track.stop());
+                    mediaStream = null;
+                } else {
+                    console.log('[Offscreen] stopTabRecording: mediaStream is null.');
+                }
+                // If mediaRecorder exists but not recording (e.g. 'inactive'), onstop might not have cleaned it.
+                if (mediaRecorder) {
+                    console.log('[Offscreen] stopTabRecording: mediaRecorder exists but not recording, setting to null.');
+                    mediaRecorder = null;
+                }
+                sendResponse({ success: false, message: 'Recorder was not active or initialized in offscreen.' });
+            }
+            break;
 
         default:
-            console.warn('[Offscreen] Unknown message type received:', message.type);
+            console.warn(`[Offscreen] Unknown message type: ${message.type}`);
             sendResponse({ success: false, error: 'Unknown message type for offscreen' });
     }
     return true; // Indicate async response potential
 }
 
-console.log('Offscreen document event listener for messages is active.');
+console.log('[Offscreen] Event listener for messages is active.');

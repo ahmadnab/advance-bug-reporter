@@ -16,165 +16,25 @@
     
     // After rrweb loads, inject the recording logic
     const recorderScript = document.createElement('script');
-    recorderScript.textContent = `
-      (() => {
-        if (!window.rrweb || window.__rrwebMainWorldRecorder) {
-          console.warn('[rrweb-recorder] rrweb not available or already initialized');
-          return;
-        }
-        window.__rrwebMainWorldRecorder = true;
+    recorderScript.src = chrome.runtime.getURL('injected_scripts/rrweb-recorder-main-world.js');
+    recorderScript.onload = () => {
+        recorderScript.remove(); // Clean up
         
-        console.log('[rrweb-recorder] Starting recording in MAIN world...');
-        
-        let events = [];
-        let isRecording = true;
-        
-        // Start recording
-        const stopFn = window.rrweb.record({
-          emit(event) {
-            if (!isRecording) return;
-            
-            // Store events
-            events.push(event);
-            
-            // Send events in batches
-            if (events.length >= 50 || event.type === 2) { // 2 is FullSnapshot
-              window.postMessage({
-                type: '__RRWEB_EVENTS__',
-                events: [...events]
-              }, '*');
-              events = [];
-            }
-          },
-          // Recording options
-          sampling: {
-            scroll: 150,
-            media: 800,
-            input: 'last',
-            mouse: 20,
-            drag: 100,
-          },
-          recordCanvas: true,
-          recordCrossOriginIframes: false,
-          maskInputOptions: {
-            password: true,
-            email: true,
-            tel: true,
-          },
-          blockClass: 'rr-block',
-          ignoreClass: 'rr-ignore',
-          maskTextClass: 'rr-mask',
-          maskAllInputs: false,
-          inlineStylesheet: true,
-          collectFonts: true,
-          slimDOMOptions: {
-            script: false,
-            comment: false,
-            headFavicon: false,
-            headWhitespace: false,
-            headMetaDescKeywords: false,
-            headMetaSocial: true,
-            headMetaRobots: false,
-            headMetaHttpEquiv: false,
-            headMetaAuthorship: false,
-            headMetaVerification: false,
-          },
-        });
-        
-        console.log('[rrweb-recorder] Recording started');
-        
-        // Set up periodic event flushing
-        const flushInterval = setInterval(() => {
-          if (events.length > 0 && isRecording) {
-            window.postMessage({
-              type: '__RRWEB_EVENTS__',
-              events: [...events]
-            }, '*');
-            events = [];
-          }
-        }, 5000);
-        
-        // Stop recording function
-        window.__stopRrwebRecording = () => {
-          console.log('[rrweb-recorder] Stopping recording...');
-          isRecording = false;
-          clearInterval(flushInterval);
-          
-          if (stopFn) {
-            stopFn();
-          }
-          
-          // Send any remaining events
-          if (events.length > 0) {
-            window.postMessage({
-              type: '__RRWEB_EVENTS__',
-              events: [...events]
-            }, '*');
-            events = [];
-          }
-          
-          // Send completion signal
-          window.postMessage({
-            type: '__RRWEB_RECORDING_STOPPED__'
-          }, '*');
+        // Now inject the indicator script
+        const indicatorScript = document.createElement('script');
+        indicatorScript.src = chrome.runtime.getURL('injected_scripts/rrweb-indicator.js');
+        indicatorScript.onload = () => {
+            indicatorScript.remove(); // Clean up
         };
-        
-        // Handle page unload
-        window.addEventListener('beforeunload', () => {
-          if (window.__stopRrwebRecording) {
-            window.__stopRrwebRecording();
-          }
-        });
-      })();
-    `;
-    document.head.appendChild(recorderScript);
-    recorderScript.remove();
-    
-    // Add visual indicator
-    const indicatorScript = document.createElement('script');
-    indicatorScript.textContent = `
-      (() => {
-        const indicator = document.createElement('div');
-        indicator.id = '__rrweb-recording-indicator';
-        indicator.style.cssText = \`
-          position: fixed;
-          top: 10px;
-          right: 10px;
-          width: 12px;
-          height: 12px;
-          background: #dc2626;
-          border-radius: 50%;
-          z-index: 999999;
-          pointer-events: none;
-          animation: rrwebPulse 2s infinite;
-          box-shadow: 0 0 0 0 rgba(220, 38, 38, 1);
-        \`;
-        
-        const style = document.createElement('style');
-        style.textContent = \`
-          @keyframes rrwebPulse {
-            0% {
-              box-shadow: 0 0 0 0 rgba(220, 38, 38, 0.7);
-            }
-            70% {
-              box-shadow: 0 0 0 10px rgba(220, 38, 38, 0);
-            }
-            100% {
-              box-shadow: 0 0 0 0 rgba(220, 38, 38, 0);
-            }
-          }
-        \`;
-        document.head.appendChild(style);
-        document.body.appendChild(indicator);
-        
-        window.__removeRrwebIndicator = () => {
-          indicator.remove();
-          style.remove();
+        indicatorScript.onerror = (e) => {
+            console.error('[rrweb-recorder] Failed to load rrweb-indicator.js:', e);
         };
-      })();
-    `;
-    document.head.appendChild(indicatorScript);
-    indicatorScript.remove();
+        (document.head || document.documentElement).appendChild(indicatorScript);
+    };
+    recorderScript.onerror = (e) => {
+        console.error('[rrweb-recorder] Failed to load rrweb-recorder-main-world.js:', e);
+    };
+    (document.head || document.documentElement).appendChild(recorderScript);
   };
   
   script.onerror = () => {
@@ -191,12 +51,15 @@
     if (event.data && event.data.type === '__RRWEB_EVENTS__') {
       // Forward to service worker
       try {
+        console.log('[rrweb-recorder] Sending RRWEB_EVENTS to service worker. Event count:', event.data.events ? event.data.events.length : 0, 'Payload:', event.data.events);
         chrome.runtime.sendMessage({
           type: 'RRWEB_EVENTS',
           payload: event.data.events
         }, response => {
           if (chrome.runtime.lastError) {
-            console.error('[rrweb-recorder] Failed to send events:', chrome.runtime.lastError.message);
+            console.error('[rrweb-recorder] Failed to send events. Error:', chrome.runtime.lastError);
+          } else {
+            console.log('[rrweb-recorder] Service worker response for RRWEB_EVENTS:', response);
           }
         });
       } catch (error) {
@@ -216,16 +79,14 @@
       
       // Inject stop command
       const stopScript = document.createElement('script');
-      stopScript.textContent = `
-        if (window.__stopRrwebRecording) {
-          window.__stopRrwebRecording();
-        }
-        if (window.__removeRrwebIndicator) {
-          window.__removeRrwebIndicator();
-        }
-      `;
-      document.head.appendChild(stopScript);
-      stopScript.remove();
+      stopScript.src = chrome.runtime.getURL('injected_scripts/rrweb-stop.js');
+      stopScript.onload = () => {
+          stopScript.remove(); // Clean up
+      };
+      stopScript.onerror = (e) => {
+          console.error('[rrweb-recorder] Failed to load rrweb-stop.js:', e);
+      };
+      (document.head || document.documentElement).appendChild(stopScript);
       
       sendResponse({ success: true });
     }
