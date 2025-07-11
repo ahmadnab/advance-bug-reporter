@@ -1,11 +1,31 @@
 // utils/jiraApi.js
 // This module handles communication with the Jira Cloud REST API.
 
-// Create global namespace
-if (!window.BugReporter) window.BugReporter = {};
-if (!window.BugReporter.utils) window.BugReporter.utils = {};
+// Safely determine the global object
+let globalObj;
+try {
+    if (typeof self !== 'undefined') {
+        globalObj = self;
+    }
+} catch (e) {}
 
-window.BugReporter.utils.jiraApi = (function() {
+if (!globalObj) {
+    try {
+        if (typeof window !== 'undefined') {
+            globalObj = window;
+        }
+    } catch (e) {}
+}
+
+if (!globalObj) {
+    globalObj = (function() { return this; })() || {};
+}
+
+// Create global namespace
+if (!globalObj.BugReporter) globalObj.BugReporter = {};
+if (!globalObj.BugReporter.utils) globalObj.BugReporter.utils = {};
+
+globalObj.BugReporter.utils.jiraApi = (function() {
     'use strict';
 
     /**
@@ -334,9 +354,3 @@ window.BugReporter.utils.jiraApi = (function() {
         addJiraAttachment
     };
 })();
-
-// For service worker compatibility
-if (typeof self !== 'undefined' && self.BugReporter === undefined) {
-    self.BugReporter = { utils: {} };
-    self.BugReporter.utils.jiraApi = window.BugReporter.utils.jiraApi;
-}

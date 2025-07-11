@@ -55,6 +55,16 @@
             font-size: 13px;
             white-space: pre-wrap;
         }
+        .remove-button {
+            padding: 5px 10px;
+            font-size: 12px;
+        }
+        input[type="text"], input[type="password"], input[type="email"] {
+            padding: 8px;
+            margin: 5px;
+            border: 1px solid #e2e8f0;
+            border-radius: 4px;
+        }
     </style>
 </head>
 <body>
@@ -63,30 +73,30 @@
 
     <div class="test-section">
         <h2>Console Log Tests</h2>
-        <button onclick="testConsoleLogs()">Generate Console Logs</button>
-        <button onclick="testConsoleError()">Generate Error</button>
-        <button onclick="testConsoleObject()">Log Complex Object</button>
+        <button id="btnConsoleLogs">Generate Console Logs</button>
+        <button id="btnConsoleError">Generate Error</button>
+        <button id="btnConsoleObject">Log Complex Object</button>
     </div>
 
     <div class="test-section">
         <h2>Network Request Tests</h2>
-        <button onclick="testFetch()">Make Fetch Request</button>
-        <button onclick="testFailedFetch()">Make Failed Request</button>
-        <button onclick="testMultipleRequests()">Make Multiple Requests</button>
+        <button id="btnFetch">Make Fetch Request</button>
+        <button id="btnFailedFetch">Make Failed Request</button>
+        <button id="btnMultipleRequests">Make Multiple Requests</button>
     </div>
 
     <div class="test-section">
         <h2>DOM Interaction Tests</h2>
-        <button onclick="testDOMChanges()">Modify DOM</button>
-        <button onclick="testFormInput()">Show Form</button>
+        <button id="btnDOMChanges">Modify DOM</button>
+        <button id="btnFormInput">Show Form</button>
         <div id="dynamicContent"></div>
     </div>
 
     <div class="test-section">
         <h2>Error Scenarios</h2>
-        <button onclick="throwError()">Throw JavaScript Error</button>
-        <button onclick="asyncError()">Async Error</button>
-        <button onclick="promiseRejection()">Promise Rejection</button>
+        <button id="btnThrowError">Throw JavaScript Error</button>
+        <button id="btnAsyncError">Async Error</button>
+        <button id="btnPromiseRejection">Promise Rejection</button>
     </div>
 
     <div id="results"></div>
@@ -182,20 +192,38 @@
 
         function testDOMChanges() {
             const container = document.getElementById('dynamicContent');
-            container.innerHTML = `
-                <div class="success">
-                    <h3>Dynamic Content Added!</h3>
-                    <p>This content was added dynamically at ${new Date().toLocaleTimeString()}</p>
-                    <button onclick="this.parentElement.remove()">Remove Me</button>
-                </div>
-            `;
+            const div = document.createElement('div');
+            div.className = 'success';
+            
+            const h3 = document.createElement('h3');
+            h3.textContent = 'Dynamic Content Added!';
+            
+            const p = document.createElement('p');
+            p.textContent = `This content was added dynamically at ${new Date().toLocaleTimeString()}`;
+            
+            const removeBtn = document.createElement('button');
+            removeBtn.className = 'remove-button';
+            removeBtn.textContent = 'Remove Me';
+            
+            // Add event listener to the remove button
+            removeBtn.addEventListener('click', function() {
+                div.remove();
+                log('Dynamic content removed', 'info');
+            });
+            
+            div.appendChild(h3);
+            div.appendChild(p);
+            div.appendChild(removeBtn);
+            
+            container.appendChild(div);
             log('DOM content added', 'success');
         }
 
         function testFormInput() {
             const container = document.getElementById('dynamicContent');
-            container.innerHTML = `
-                <form onsubmit="handleFormSubmit(event)">
+            const formHTML = document.createElement('div');
+            formHTML.innerHTML = `
+                <form id="testForm">
                     <h3>Test Form</h3>
                     <input type="text" placeholder="Enter text" id="testInput">
                     <input type="password" placeholder="Password" id="testPassword">
@@ -203,6 +231,13 @@
                     <button type="submit">Submit</button>
                 </form>
             `;
+            container.innerHTML = '';
+            container.appendChild(formHTML.firstElementChild);
+            
+            // Add form submit handler
+            const form = document.getElementById('testForm');
+            form.addEventListener('submit', handleFormSubmit);
+            
             log('Form displayed', 'success');
         }
 
@@ -247,6 +282,19 @@
                 log('Promise rejection handled', 'success');
             });
         }
+
+        // Add event listeners
+        document.getElementById('btnConsoleLogs').addEventListener('click', testConsoleLogs);
+        document.getElementById('btnConsoleError').addEventListener('click', testConsoleError);
+        document.getElementById('btnConsoleObject').addEventListener('click', testConsoleObject);
+        document.getElementById('btnFetch').addEventListener('click', testFetch);
+        document.getElementById('btnFailedFetch').addEventListener('click', testFailedFetch);
+        document.getElementById('btnMultipleRequests').addEventListener('click', testMultipleRequests);
+        document.getElementById('btnDOMChanges').addEventListener('click', testDOMChanges);
+        document.getElementById('btnFormInput').addEventListener('click', testFormInput);
+        document.getElementById('btnThrowError').addEventListener('click', throwError);
+        document.getElementById('btnAsyncError').addEventListener('click', asyncError);
+        document.getElementById('btnPromiseRejection').addEventListener('click', promiseRejection);
 
         // Log page load
         console.log('Test page loaded at', new Date().toISOString());

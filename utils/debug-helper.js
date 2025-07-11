@@ -1,19 +1,39 @@
 // utils/debug-helper.js
 // Debug helper functions for the service worker console
 
-// Create global debug namespace
-if (!self.BugReporterDebug) self.BugReporterDebug = {};
+// Safely get global object
+let globalObj;
+try {
+    if (typeof self !== 'undefined') {
+        globalObj = self;
+    }
+} catch (e) {}
 
-self.BugReporterDebug = {
+if (!globalObj) {
+    try {
+        if (typeof window !== 'undefined') {
+            globalObj = window;
+        }
+    } catch (e) {}
+}
+
+if (!globalObj) {
+    globalObj = (function() { return this; })() || {};
+}
+
+// Create global debug namespace
+if (!globalObj.BugReporterDebug) globalObj.BugReporterDebug = {};
+
+globalObj.BugReporterDebug = {
     // Check if all modules are loaded
     checkModules: function() {
         console.log('Checking loaded modules...');
         const modules = {
-            'storageHelper': self.BugReporter?.utils?.storageHelper,
-            'logFormatter': self.BugReporter?.utils?.logFormatter,
-            'geminiApi': self.BugReporter?.utils?.geminiApi,
-            'jiraApi': self.BugReporter?.utils?.jiraApi,
-            'zipHelper': self.BugReporter?.utils?.zipHelper
+            'storageHelper': globalObj.BugReporter?.utils?.storageHelper,
+            'logFormatter': globalObj.BugReporter?.utils?.logFormatter,
+            'geminiApi': globalObj.BugReporter?.utils?.geminiApi,
+            'jiraApi': globalObj.BugReporter?.utils?.jiraApi,
+            'zipHelper': globalObj.BugReporter?.utils?.zipHelper
         };
         
         for (const [name, module] of Object.entries(modules)) {
@@ -28,7 +48,7 @@ self.BugReporterDebug = {
     
     // Check current recording state
     checkRecordingState: function() {
-        console.log('Current recording state:', recordingState);
+        console.log('Current recording state:', typeof recordingState !== 'undefined' ? recordingState : 'recordingState not defined');
     },
     
     // Test storage access
@@ -47,7 +67,8 @@ self.BugReporterDebug = {
     // List all recordings
     listRecordings: async function() {
         try {
-            const recordings = await RecordingStorage.getAllRecordings();
+            const result = await chrome.storage.local.get('recordings');
+            const recordings = result.recordings || [];
             console.log(`Found ${recordings.length} recordings:`);
             recordings.forEach(rec => {
                 console.log(`- ${rec.id}: ${rec.pageTitle} (${new Date(rec.timestamp).toLocaleString()})`);
@@ -62,7 +83,8 @@ self.BugReporterDebug = {
         if (!confirm('Are you sure you want to clear all recordings?')) return;
         
         try {
-            const recordings = await RecordingStorage.getAllRecordings();
+            const result = await chrome.storage.local.get('recordings');
+            const recordings = result.recordings || [];
             for (const rec of recordings) {
                 await chrome.storage.local.remove(`recording_${rec.id}`);
             }
@@ -77,6 +99,14 @@ self.BugReporterDebug = {
     testJiraConnection: async function() {
         console.log('Testing Jira connection...');
         try {
+            const storageHelper = globalObj.BugReporter?.utils?.storageHelper;
+            const jiraApi = globalObj.BugReporter?.utils?.jiraApi;
+            
+            if (!storageHelper || !jiraApi) {
+                console.error('❌ Required modules not loaded');
+                return;
+            }
+            
             const credentials = await storageHelper.getJiraCredentials();
             if (!credentials) {
                 console.error('❌ No Jira credentials configured');
@@ -96,6 +126,14 @@ self.BugReporterDebug = {
     testAiApi: async function() {
         console.log('Testing AI API...');
         try {
+            const storageHelper = globalObj.BugReporter?.utils?.storageHelper;
+            const geminiApi = globalObj.BugReporter?.utils?.geminiApi;
+            
+            if (!storageHelper || !geminiApi) {
+                console.error('❌ Required modules not loaded');
+                return;
+            }
+            
             const apiKey = await storageHelper.getAiApiKey();
             if (!apiKey) {
                 console.error('❌ No AI API key configured');
@@ -114,12 +152,16 @@ self.BugReporterDebug = {
     // Force stop recording
     forceStopRecording: async function() {
         console.log('Force stopping recording...');
-        recordingState.isRecording = false;
-        recordingState.isWaitingForVideoData = false;
+        if (typeof recordingState !== 'undefined') {
+            recordingState.isRecording = false;
+            recordingState.isWaitingForVideoData = false;
+        }
         chrome.action.setBadgeText({ text: '' });
         
         try {
-            await closeOffscreenDocumentIfNeeded();
+            if (typeof closeOffscreenDocumentIfNeeded === 'function') {
+                await closeOffscreenDocumentIfNeeded();
+            }
         } catch (e) {
             console.error('Error closing offscreen document:', e);
         }
@@ -151,4 +193,4 @@ console.log('- BugReporterDebug.forceStopRecording()');
 console.log('- BugReporterDebug.getInfo()');
 
 // Run initial module check
-BugReporterDebug.checkModules();
+globalObj.BugReporterDebug.checkModules();

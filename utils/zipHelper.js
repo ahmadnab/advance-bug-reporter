@@ -1,18 +1,38 @@
 // utils/zipHelper.js
 // This module provides utility functions for creating ZIP files
 
-// Create global namespace
-if (!window.BugReporter) window.BugReporter = {};
-if (!window.BugReporter.utils) window.BugReporter.utils = {};
+// Safely determine the global object
+let globalObj;
+try {
+    if (typeof self !== 'undefined') {
+        globalObj = self;
+    }
+} catch (e) {}
 
-window.BugReporter.utils.zipHelper = (function() {
+if (!globalObj) {
+    try {
+        if (typeof window !== 'undefined') {
+            globalObj = window;
+        }
+    } catch (e) {}
+}
+
+if (!globalObj) {
+    globalObj = (function() { return this; })() || {};
+}
+
+// Create global namespace
+if (!globalObj.BugReporter) globalObj.BugReporter = {};
+if (!globalObj.BugReporter.utils) globalObj.BugReporter.utils = {};
+
+globalObj.BugReporter.utils.zipHelper = (function() {
     'use strict';
 
     let JSZip = null;
     
     // Try to get JSZip from global scope (will be loaded via script tag)
-    if (typeof window !== 'undefined' && window.JSZip) {
-        JSZip = window.JSZip;
+    if (typeof globalObj.JSZip !== 'undefined') {
+        JSZip = globalObj.JSZip;
         console.log('JSZip loaded from global scope');
     }
 
@@ -92,11 +112,14 @@ window.BugReporter.utils.zipHelper = (function() {
 
     // Try to initialize JSZip when this module loads
     function initializeJSZip() {
-        if (!JSZip && typeof window !== 'undefined') {
+        if (!JSZip && typeof globalObj.JSZip !== 'undefined') {
+            JSZip = globalObj.JSZip;
+            console.log('JSZip loaded after initialization');
+        } else if (!JSZip) {
             // Check if JSZip is available after a short delay (in case it's still loading)
             setTimeout(() => {
-                if (window.JSZip) {
-                    JSZip = window.JSZip;
+                if (globalObj.JSZip) {
+                    JSZip = globalObj.JSZip;
                     console.log('JSZip loaded after delay');
                 }
             }, 100);
@@ -115,9 +138,3 @@ window.BugReporter.utils.zipHelper = (function() {
         initializeJSZip: initializeJSZip
     };
 })();
-
-// For service worker compatibility
-if (typeof self !== 'undefined' && self.BugReporter === undefined) {
-    self.BugReporter = { utils: {} };
-    self.BugReporter.utils.zipHelper = window.BugReporter.utils.zipHelper;
-}

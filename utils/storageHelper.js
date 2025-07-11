@@ -2,11 +2,38 @@
 // This module provides utility functions for interacting with chrome.storage.local
 // to manage extension settings like API keys and Jira credentials.
 
-// Create global namespace
-if (!window.BugReporter) window.BugReporter = {};
-if (!window.BugReporter.utils) window.BugReporter.utils = {};
+// Safely determine the global object
+let globalObj;
+try {
+    // In service worker context, 'self' is defined
+    if (typeof self !== 'undefined') {
+        globalObj = self;
+    }
+} catch (e) {
+    // Fallback for any context issues
+}
 
-window.BugReporter.utils.storageHelper = (function() {
+// If globalObj not set, try window (for regular contexts)
+if (!globalObj) {
+    try {
+        if (typeof window !== 'undefined') {
+            globalObj = window;
+        }
+    } catch (e) {
+        // In service worker, accessing window will throw
+    }
+}
+
+// Final fallback
+if (!globalObj) {
+    globalObj = (function() { return this; })() || {};
+}
+
+// Create global namespace
+if (!globalObj.BugReporter) globalObj.BugReporter = {};
+if (!globalObj.BugReporter.utils) globalObj.BugReporter.utils = {};
+
+globalObj.BugReporter.utils.storageHelper = (function() {
     'use strict';
 
     /**
@@ -148,9 +175,3 @@ window.BugReporter.utils.storageHelper = (function() {
         getSetting
     };
 })();
-
-// For service worker compatibility
-if (typeof self !== 'undefined' && self.BugReporter === undefined) {
-    self.BugReporter = { utils: {} };
-    self.BugReporter.utils.storageHelper = window.BugReporter.utils.storageHelper;
-}

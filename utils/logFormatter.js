@@ -2,11 +2,31 @@
 // This module provides utility functions for formatting console and network logs
 // for reports and AI prompts.
 
-// Create global namespace
-if (!window.BugReporter) window.BugReporter = {};
-if (!window.BugReporter.utils) window.BugReporter.utils = {};
+// Safely determine the global object
+let globalObj;
+try {
+    if (typeof self !== 'undefined') {
+        globalObj = self;
+    }
+} catch (e) {}
 
-window.BugReporter.utils.logFormatter = (function() {
+if (!globalObj) {
+    try {
+        if (typeof window !== 'undefined') {
+            globalObj = window;
+        }
+    } catch (e) {}
+}
+
+if (!globalObj) {
+    globalObj = (function() { return this; })() || {};
+}
+
+// Create global namespace
+if (!globalObj.BugReporter) globalObj.BugReporter = {};
+if (!globalObj.BugReporter.utils) globalObj.BugReporter.utils = {};
+
+globalObj.BugReporter.utils.logFormatter = (function() {
     'use strict';
 
     /**
@@ -199,9 +219,3 @@ window.BugReporter.utils.logFormatter = (function() {
         formatLogsForAiPrompt
     };
 })();
-
-// For service worker compatibility
-if (typeof self !== 'undefined' && self.BugReporter === undefined) {
-    self.BugReporter = { utils: {} };
-    self.BugReporter.utils.logFormatter = window.BugReporter.utils.logFormatter;
-}

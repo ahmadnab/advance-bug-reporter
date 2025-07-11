@@ -2,11 +2,31 @@
 // This module handles communication with the Google Gemini API
 // for generating AI-assisted bug report content.
 
-// Create global namespace
-if (!window.BugReporter) window.BugReporter = {};
-if (!window.BugReporter.utils) window.BugReporter.utils = {};
+// Safely determine the global object
+let globalObj;
+try {
+    if (typeof self !== 'undefined') {
+        globalObj = self;
+    }
+} catch (e) {}
 
-window.BugReporter.utils.geminiApi = (function() {
+if (!globalObj) {
+    try {
+        if (typeof window !== 'undefined') {
+            globalObj = window;
+        }
+    } catch (e) {}
+}
+
+if (!globalObj) {
+    globalObj = (function() { return this; })() || {};
+}
+
+// Create global namespace
+if (!globalObj.BugReporter) globalObj.BugReporter = {};
+if (!globalObj.BugReporter.utils) globalObj.BugReporter.utils = {};
+
+globalObj.BugReporter.utils.geminiApi = (function() {
     'use strict';
 
     // The specific model can be adjusted based on needs
@@ -128,9 +148,3 @@ window.BugReporter.utils.geminiApi = (function() {
         generateAiSuggestions
     };
 })();
-
-// For service worker compatibility
-if (typeof self !== 'undefined' && self.BugReporter === undefined) {
-    self.BugReporter = { utils: {} };
-    self.BugReporter.utils.geminiApi = window.BugReporter.utils.geminiApi;
-}

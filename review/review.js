@@ -3,14 +3,29 @@
 // Wait for dependencies to load
 let formatConsoleLogsForReport, formatNetworkLogsForReport;
 
-// Load utilities
+// Load utilities with retry mechanism
 function loadUtilities() {
-    // Try to load from BugReporter namespace
-    if (window.BugReporter && window.BugReporter.utils) {
-        formatConsoleLogsForReport = window.BugReporter.utils.logFormatter.formatConsoleLogsForReport;
-        formatNetworkLogsForReport = window.BugReporter.utils.logFormatter.formatNetworkLogsForReport;
-    } else {
-        // If not available, define inline versions
+    let attempts = 0;
+    const maxAttempts = 10;
+    
+    function tryLoad() {
+        // Try to load from BugReporter namespace
+        if (window.BugReporter && window.BugReporter.utils && window.BugReporter.utils.logFormatter) {
+            formatConsoleLogsForReport = window.BugReporter.utils.logFormatter.formatConsoleLogsForReport;
+            formatNetworkLogsForReport = window.BugReporter.utils.logFormatter.formatNetworkLogsForReport;
+            console.log('Utilities loaded from BugReporter namespace');
+            return true;
+        }
+        
+        attempts++;
+        if (attempts < maxAttempts) {
+            console.log(`Utilities not ready, retrying... (${attempts}/${maxAttempts})`);
+            setTimeout(tryLoad, 100);
+            return false;
+        }
+        
+        // If still not available after retries, define inline versions
+        console.warn('Using inline utility functions as fallback');
         formatConsoleLogsForReport = function(consoleLogs) {
             if (!consoleLogs || consoleLogs.length === 0) {
                 return "No console logs captured.\n";
@@ -37,7 +52,10 @@ function loadUtilities() {
             reportString += "========================================\n";
             return reportString;
         };
+        return true;
     }
+    
+    tryLoad();
 }
 
 // Load JSZip dynamically
