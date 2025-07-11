@@ -9,10 +9,10 @@
     "scripting",
     "debugger",
     "offscreen",
-    "contextMenus",
     "alarms",
     "desktopCapture",
     "tabs",
+    "contextMenus",
     "system.display"
   ],
   "host_permissions": [
@@ -21,7 +21,8 @@
     "https://generativelanguage.googleapis.com/*"
   ],
   "background": {
-    "service_worker": "service-worker.js"
+    "service_worker": "service-worker.js",
+    "type": "module"
   },
   "action": {
     "default_popup": "popup/popup.html",
@@ -47,15 +48,11 @@
     {
       "resources": [
         "offscreen/offscreen.html",
-        "libs/rrweb.min.js",
-        "libs/rrweb-player.min.js",
-        "libs/jszip.esm.js",
+        "libs/*",
         "review/review.html",
         "review/review.css",
         "review/review.js",
-        "utils/logFormatter.js",
-        "error.html",
-        "test/test.html"
+        "content_scripts/*"
       ],
       "matches": ["<all_urls>"]
     }

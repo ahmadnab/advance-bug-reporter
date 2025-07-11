@@ -1,84 +1,44 @@
 // review/review.js - Recording Review Interface
-
-// Wait for dependencies to load
-let formatConsoleLogsForReport, formatNetworkLogsForReport;
-
-// Load utilities with retry mechanism
-function loadUtilities() {
-    let attempts = 0;
-    const maxAttempts = 10;
-    
-    function tryLoad() {
-        // Try to load from BugReporter namespace
-        if (window.BugReporter && window.BugReporter.utils && window.BugReporter.utils.logFormatter) {
-            formatConsoleLogsForReport = window.BugReporter.utils.logFormatter.formatConsoleLogsForReport;
-            formatNetworkLogsForReport = window.BugReporter.utils.logFormatter.formatNetworkLogsForReport;
-            console.log('Utilities loaded from BugReporter namespace');
-            return true;
-        }
-        
-        attempts++;
-        if (attempts < maxAttempts) {
-            console.log(`Utilities not ready, retrying... (${attempts}/${maxAttempts})`);
-            setTimeout(tryLoad, 100);
-            return false;
-        }
-        
-        // If still not available after retries, define inline versions
-        console.warn('Using inline utility functions as fallback');
-        formatConsoleLogsForReport = function(consoleLogs) {
-            if (!consoleLogs || consoleLogs.length === 0) {
-                return "No console logs captured.\n";
-            }
-            let reportString = "Console Logs:\n========================================\n";
-            consoleLogs.forEach(log => {
-                const time = new Date(log.timestamp).toLocaleTimeString();
-                const level = log.level.toUpperCase();
-                const argsString = log.args.join(' ');
-                reportString += `[${time}] [${level}] ${argsString}\n`;
-            });
-            reportString += "========================================\n";
-            return reportString;
-        };
-
-        formatNetworkLogsForReport = function(networkLogs) {
-            if (!networkLogs || networkLogs.length === 0) {
-                return "No network logs captured.\n";
-            }
-            let reportString = "Network Activity Log:\n========================================\n";
-            networkLogs.forEach(log => {
-                reportString += `${log.type}: ${JSON.stringify(log.params, null, 2)}\n`;
-            });
-            reportString += "========================================\n";
-            return reportString;
-        };
-        return true;
-    }
-    
-    tryLoad();
-}
+import { formatConsoleLogsForReport, formatNetworkLogsForReport } from '../utils/logFormatter.js';
 
 // Load JSZip dynamically
-function loadJSZip() {
+let JSZip = null;
+
+// Load JSZip from global scope (it will be loaded as a regular script)
+async function loadJSZip() {
     return new Promise((resolve, reject) => {
         if (window.JSZip) {
-            resolve(window.JSZip);
+            JSZip = window.JSZip;
+            resolve();
             return;
         }
-
+        
         const script = document.createElement('script');
         script.src = chrome.runtime.getURL('libs/jszip.esm.js');
         script.onload = () => {
-            if (window.JSZip) {
-                resolve(window.JSZip);
-            } else {
-                reject(new Error('JSZip failed to load'));
-            }
+            // Wait for JSZip to be available in global scope
+            let attempts = 0;
+            const checkInterval = setInterval(() => {
+                attempts++;
+                if (window.JSZip) {
+                    JSZip = window.JSZip;
+                    clearInterval(checkInterval);
+                    resolve();
+                } else if (attempts > 50) { // 5 seconds timeout
+                    clearInterval(checkInterval);
+                    reject(new Error('JSZip failed to load'));
+                }
+            }, 100);
         };
         script.onerror = () => reject(new Error('Failed to load JSZip script'));
         document.head.appendChild(script);
     });
 }
+
+// Initialize JSZip
+loadJSZip().catch(error => {
+    console.error('Failed to load JSZip:', error);
+});
 
 // Get recording ID from URL
 const urlParams = new URLSearchParams(window.location.search);
@@ -93,7 +53,6 @@ let currentRecording = null;
 let currentPanel = 'player';
 let currentPlayer = 'video';
 let rrwebPlayer = null;
-let JSZip = null;
 
 // DOM Elements
 const loadingOverlay = document.getElementById('loadingOverlay');
@@ -161,17 +120,6 @@ init();
 async function init() {
     try {
         showLoading('Loading recording data...');
-        
-        // Load utilities
-        loadUtilities();
-        
-        // Load JSZip
-        try {
-            JSZip = await loadJSZip();
-            console.log('JSZip loaded successfully');
-        } catch (error) {
-            console.error('Failed to load JSZip:', error);
-        }
         
         // Load recording data
         await loadRecording();
@@ -455,21 +403,28 @@ function renderNetworkRequests(logs) {
         if (!request) return;
         
         const row = document.createElement('tr');
-        const url = new URL(request.params.request.url);
-        const method = request.params.request.method;
-        const status = response?.params.response.status || (failed ? 'Failed' : 'Pending');
-        const mimeType = response?.params.response.mimeType || '-';
-        const size = finished?.params.encodedDataLength || '-';
-        const time = calculateRequestTime(request, response, finished);
+        row.dataset.requestId = id;
         
-        row.innerHTML = `
-            <td><span class="status-badge ${getStatusClass(status)}">${status}</span></td>
-            <td>${method}</td>
-            <td title="${request.params.request.url}">${url.pathname}</td>
-            <td>${getResourceType(mimeType, url)}</td>
-            <td>${formatBytes(size)}</td>
-            <td>${time}ms</td>
-        `;
+        try {
+            const url = new URL(request.params.request.url);
+            const method = request.params.request.method;
+            const status = response?.params.response.status || (failed ? 'Failed' : 'Pending');
+            const mimeType = response?.params.response.mimeType || '-';
+            const size = finished?.params.encodedDataLength || '-';
+            const time = calculateRequestTime(request, response, finished);
+            
+            row.innerHTML = `
+                <td><span class="status-badge ${getStatusClass(status)}">${status}</span></td>
+                <td>${method}</td>
+                <td title="${request.params.request.url}">${url.pathname}</td>
+                <td>${getResourceType(mimeType, url)}</td>
+                <td>${formatBytes(size)}</td>
+                <td>${time}ms</td>
+            `;
+        } catch (e) {
+            // Invalid URL, skip
+            console.warn('Invalid URL in network log:', request.params.request.url);
+        }
         
         networkRequests.appendChild(row);
     });
@@ -507,7 +462,43 @@ function calculateRequestTime(request, response, finished) {
 }
 
 function filterNetworkRequests() {
-    // Implementation similar to console filtering
+    const searchTerm = networkSearch.value.toLowerCase();
+    const filterType = networkFilter.value;
+    
+    const rows = networkRequests.querySelectorAll('tr');
+    rows.forEach(row => {
+        const url = row.querySelector('td:nth-child(3)')?.textContent.toLowerCase() || '';
+        const type = row.querySelector('td:nth-child(4)')?.textContent.toLowerCase() || '';
+        const status = row.querySelector('.status-badge')?.textContent || '';
+        
+        const matchesSearch = !searchTerm || url.includes(searchTerm);
+        let matchesFilter = filterType === 'all';
+        
+        if (!matchesFilter) {
+            switch (filterType) {
+                case 'xhr':
+                    matchesFilter = type === 'xhr' || type === 'fetch';
+                    break;
+                case 'document':
+                    matchesFilter = type === 'document';
+                    break;
+                case 'css':
+                    matchesFilter = type === 'css';
+                    break;
+                case 'js':
+                    matchesFilter = type === 'js';
+                    break;
+                case 'img':
+                    matchesFilter = type === 'image';
+                    break;
+                case 'failed':
+                    matchesFilter = status === 'Failed';
+                    break;
+            }
+        }
+        
+        row.style.display = matchesSearch && matchesFilter ? '' : 'none';
+    });
 }
 
 function exportNetworkHAR() {
@@ -519,10 +510,70 @@ function exportNetworkHAR() {
                 name: 'Advanced Bug Reporter',
                 version: '2.0.0'
             },
+            pages: [{
+                startedDateTime: new Date(currentRecording.timestamp).toISOString(),
+                id: 'page_1',
+                title: currentRecording.pageTitle,
+                pageTimings: {}
+            }],
             entries: []
-            // ... populate with network data
         }
     };
+    
+    // Convert network logs to HAR entries
+    const requests = {};
+    currentRecording.networkLogs.forEach(log => {
+        const id = log.params?.requestId;
+        if (!id) return;
+        if (!requests[id]) requests[id] = {};
+        requests[id][log.type] = log;
+    });
+    
+    Object.entries(requests).forEach(([id, events]) => {
+        const request = events['Network.requestWillBeSent'];
+        const response = events['Network.responseReceived'];
+        
+        if (!request) return;
+        
+        har.log.entries.push({
+            pageref: 'page_1',
+            startedDateTime: new Date(request.timestamp * 1000).toISOString(),
+            request: {
+                method: request.params.request.method,
+                url: request.params.request.url,
+                httpVersion: 'HTTP/1.1',
+                headers: Object.entries(request.params.request.headers || {}).map(([name, value]) => ({name, value})),
+                queryString: [],
+                cookies: [],
+                headersSize: -1,
+                bodySize: -1
+            },
+            response: response ? {
+                status: response.params.response.status,
+                statusText: response.params.response.statusText,
+                httpVersion: 'HTTP/1.1',
+                headers: Object.entries(response.params.response.headers || {}).map(([name, value]) => ({name, value})),
+                cookies: [],
+                content: {
+                    size: response.params.response.encodedDataLength || -1,
+                    mimeType: response.params.response.mimeType || ''
+                },
+                redirectURL: '',
+                headersSize: -1,
+                bodySize: -1
+            } : {},
+            cache: {},
+            timings: {
+                blocked: -1,
+                dns: -1,
+                connect: -1,
+                send: -1,
+                wait: -1,
+                receive: -1,
+                ssl: -1
+            }
+        });
+    });
     
     downloadFile('network.har', JSON.stringify(har, null, 2), 'application/json');
 }
@@ -533,8 +584,7 @@ function initializeTimeline() {
 }
 
 function renderTimeline() {
-    // Create visual timeline of events
-    // This would create a combined view of console logs, network requests, and user actions
+    timelineContainer.innerHTML = '<p>Timeline visualization coming soon...</p>';
 }
 
 function zoomTimeline(factor) {
@@ -565,7 +615,7 @@ async function handleGenerateAiSummary() {
         generateAiSummary.disabled = false;
         generateAiSummary.innerHTML = `
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                <path d="M12 2L2 7V17C2 19.21 3.79 21 6 21H18C20.21 21 22 19.21 22 17V7L12 2Z" stroke="currentColor" stroke-width="2"/>
+                <path d="M12 2L2 7V17C2 19.21 3.79 21 6 21H18C20.21 21 22 19.21 22 17V7L12 2Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
             Generate AI Summary
         `;
@@ -603,7 +653,7 @@ function handleApplyAiSuggestions() {
 // Download Functions
 async function handleDownloadAll() {
     if (!JSZip) {
-        showError('JSZip not loaded. Cannot create download package.');
+        showError('ZIP library not loaded. Please refresh the page.');
         return;
     }
     
@@ -661,9 +711,9 @@ async function handleDownloadAll() {
         downloadBtn.disabled = false;
         downloadBtn.innerHTML = `
             <svg width="16" height="16" viewBox="0 0 24 24" fill="none">
-                <path d="M21 15V19C21 20.1 20.1 21 19 21H5C3.9 21 3 20.1 3 19V15" stroke="currentColor" stroke-width="2"/>
-                <path d="M7 10L12 15L17 10" stroke="currentColor" stroke-width="2"/>
-                <path d="M12 15V3" stroke="currentColor" stroke-width="2"/>
+                <path d="M21 15V19C21 20.1 20.1 21 19 21H5C3.9 21 3 20.1 3 19V15" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M7 10L12 15L17 10" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+                <path d="M12 15V3" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
             </svg>
             Download All
         `;
@@ -828,12 +878,12 @@ function hideLoading() {
 
 function showError(message) {
     console.error(message);
-    // Could show a toast notification
+    alert('Error: ' + message);
 }
 
 function showSuccess(message) {
     console.log(message);
-    // Could show a toast notification
+    alert('Success: ' + message);
 }
 
 function formatDuration(ms) {
