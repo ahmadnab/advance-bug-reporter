@@ -1,39 +1,52 @@
 // utils/zipHelper.js
-console.log("zipHelper.js: Loading...");
+console.log("zipHelper.js: Loading JSZip library");
 
-// JSZip will be loaded globally from the jszip.esm.js file
-// We need to handle the fact that it might be loaded as a UMD module
+// For Chrome extensions with module service workers, we need to use dynamic import
+// and handle the fact that most CDN versions of JSZip are UMD, not ES modules
 let JSZip = null;
 
-// Try to get JSZip from global scope (it will be loaded by jszip.esm.js)
-if (typeof globalThis.JSZip !== 'undefined') {
-    JSZip = globalThis.JSZip;
-    console.log("JSZip loaded from globalThis");
-} else if (typeof self.JSZip !== 'undefined') {
-    JSZip = self.JSZip;
-    console.log("JSZip loaded from self");
-} else if (typeof window !== 'undefined' && window.JSZip) {
-    JSZip = window.JSZip;
-    console.log("JSZip loaded from window");
-} else {
-    // Try to load it synchronously as the file should define it globally
+// Initialize JSZip asynchronously
+async function initializeJSZip() {
+    if (JSZip) return JSZip;
+    
     try {
-        // In a service worker, we can use importScripts
-        if (typeof importScripts === 'function') {
-            importScripts('../libs/jszip.esm.js');
-            JSZip = globalThis.JSZip || self.JSZip;
-            console.log("JSZip loaded via importScripts");
+        // Try to dynamically import the local file
+        const module = await import('../libs/jszip.esm.js');
+        
+        // Handle different possible module formats
+        if (module.default && typeof module.default === 'function') {
+            JSZip = module.default;
+        } else if (module.JSZip && typeof module.JSZip === 'function') {
+            JSZip = module.JSZip;
+        } else if (typeof module === 'function') {
+            JSZip = module;
+        } else {
+            // If the module doesn't export JSZip properly, we'll need to load it differently
+            throw new Error('JSZip not found in imported module');
         }
-    } catch (e) {
-        console.error("Failed to load JSZip via importScripts:", e);
+        
+        console.log("JSZip loaded successfully via dynamic import");
+        return JSZip;
+    } catch (error) {
+        console.error("Failed to load JSZip:", error);
+        
+        // Alternative: Load JSZip from a CDN that provides proper ES modules
+        try {
+            const response = await fetch('https://cdn.jsdelivr.net/npm/jszip@3.10.1/+esm');
+            const text = await response.text();
+            const blob = new Blob([text], { type: 'application/javascript' });
+            const url = URL.createObjectURL(blob);
+            const module = await import(url);
+            URL.revokeObjectURL(url);
+            
+            JSZip = module.default || module.JSZip || module;
+            console.log("JSZip loaded from CDN");
+            return JSZip;
+        } catch (cdnError) {
+            console.error("Failed to load JSZip from CDN:", cdnError);
+            return null;
+        }
     }
-}
-
-// Final check
-if (!JSZip) {
-    console.error("CRITICAL: JSZip could not be loaded!");
-} else {
-    console.log("JSZip successfully loaded, version:", JSZip.version || "unknown");
 }
 
 /**
@@ -43,11 +56,14 @@ if (!JSZip) {
  * @param {Array<object>} networkLogData - Array of network log objects.
  * @param {string} userDetailsText - A string containing the user's summary and description.
  * @param {string} baseFileName - A base name for the files, e.g., from bug summary or Jira key.
- * @returns {Promise<Blob|null>} A promise that resolves with the ZIP file Blob, or null on error or if JSZip failed to load.
+ * @returns {Promise<Blob|null>} A promise that resolves with the ZIP file Blob, or null on error.
  */
 export async function createReportZip(videoBlobInput, consoleLogData, networkLogData, userDetailsText, baseFileName = 'bug_report') {
-    if (!JSZip) {
-        console.error("[zipHelper] JSZip is not available. Cannot create ZIP file.");
+    // Ensure JSZip is loaded
+    const JSZipLib = await initializeJSZip();
+    
+    if (!JSZipLib) {
+        console.error("[zipHelper] JSZip could not be loaded. Cannot create ZIP file.");
         return null;
     }
 
@@ -64,19 +80,17 @@ export async function createReportZip(videoBlobInput, consoleLogData, networkLog
     }
 
     try {
-        const zip = new JSZip();
+        const zip = new JSZipLib();
 
         if (userDetailsText) {
             zip.file(`${baseFileName}_details.txt`, userDetailsText);
         }
-        
         if (consoleLogData && consoleLogData.length > 0) {
             const consoleJsonString = JSON.stringify(consoleLogData, null, 2);
             zip.file(`${baseFileName}_console_logs.json`, consoleJsonString);
         } else {
             zip.file(`${baseFileName}_console_logs.txt`, "No console logs captured or provided.");
         }
-        
         if (networkLogData && networkLogData.length > 0) {
             const networkJsonString = JSON.stringify(networkLogData, null, 2);
             zip.file(`${baseFileName}_network_logs.json`, networkJsonString);
@@ -107,9 +121,9 @@ export async function createReportZip(videoBlobInput, consoleLogData, networkLog
         return zipBlob;
 
     } catch (error) {
-        console.error('[zipHelper] Error creating ZIP file during JSZip operation:', error);
-        throw new Error(`Failed to create report ZIP during JSZip operation: ${error.message}`);
+        console.error('[zipHelper] Error creating ZIP file:', error);
+        throw new Error(`Failed to create report ZIP: ${error.message}`);
     }
 }
 
-console.log('zipHelper.js: Module loaded and ready');
+console.log('zipHelper.js: Module initialized');
