@@ -11,7 +11,9 @@
       "offscreen",
       "alarms",
       "desktopCapture",
-      "tabs"
+      "tabs",
+      "system.display",
+      "contextMenus"
     ],
     "host_permissions": [
       "<all_urls>",
@@ -48,6 +50,8 @@
           "offscreen/offscreen.html",
           "libs/rrweb.min.js",
           "libs/rrweb-player.min.js",
+          "libs/jszip-loader.js",
+          "libs/jszip.esm.js",
           "review/review.html",
           "review/review.css",
           "review/review.js"

@@ -53,7 +53,9 @@ export function formatNetworkLogsForReport(networkLogs) {
     // Group events by requestId for better readability
     const requests = {};
     networkLogs.forEach(log => {
-        const id = log.requestId;
+        const id = log.requestId || log.params?.requestId;
+        if (!id) return;
+        
         if (!requests[id]) {
             requests[id] = [];
         }
@@ -62,14 +64,15 @@ export function formatNetworkLogsForReport(networkLogs) {
 
     for (const requestId in requests) {
         const events = requests[requestId];
-        const requestWillBeSent = events.find(e => e.type === 'requestWillBeSent');
-        const responseReceived = events.find(e => e.type === 'responseReceived');
-        const loadingFinished = events.find(e => e.type === 'loadingFinished');
-        const loadingFailed = events.find(e => e.type === 'loadingFailed');
+        const requestWillBeSent = events.find(e => e.type === 'Network.requestWillBeSent');
+        const responseReceived = events.find(e => e.type === 'Network.responseReceived');
+        const loadingFinished = events.find(e => e.type === 'Network.loadingFinished');
+        const loadingFailed = events.find(e => e.type === 'Network.loadingFailed');
 
         if (requestWillBeSent) {
-            const req = requestWillBeSent.request;
-            const time = new Date(requestWillBeSent.wallTime * 1000).toLocaleTimeString(); // wallTime is in seconds since epoch
+            const req = requestWillBeSent.params.request;
+            const wallTime = requestWillBeSent.params.wallTime || requestWillBeSent.timestamp;
+            const time = new Date(wallTime * 1000).toLocaleTimeString(); // wallTime is in seconds since epoch
             reportString += `\n[${time}] Request ID: ${requestId}\n`;
             reportString += `  URL: ${req.url}\n`;
             reportString += `  Method: ${req.method}\n`;
@@ -79,7 +82,7 @@ export function formatNetworkLogsForReport(networkLogs) {
         }
 
         if (responseReceived) {
-            const res = responseReceived.response;
+            const res = responseReceived.params.response;
             reportString += `  Status: ${res.status} ${res.statusText}\n`;
             reportString += `  MIME Type: ${res.mimeType}\n`;
             if (res.timing) {
@@ -90,11 +93,11 @@ export function formatNetworkLogsForReport(networkLogs) {
         }
 
         if (loadingFinished) {
-            reportString += `  Finished: Encoded Data Length: ${loadingFinished.encodedDataLength} bytes\n`;
+            reportString += `  Finished: Encoded Data Length: ${loadingFinished.params.encodedDataLength} bytes\n`;
         }
 
         if (loadingFailed) {
-            reportString += `  Failed: ${loadingFailed.errorText} (Canceled: ${loadingFailed.canceled})\n`;
+            reportString += `  Failed: ${loadingFailed.params.errorText} (Canceled: ${loadingFailed.params.canceled})\n`;
         }
         reportString += `----------------------------------------\n`;
     }
@@ -155,7 +158,8 @@ export function formatLogsForAiPrompt(consoleLogs, networkLogs, userNote) {
 
         const requests = {};
         networkLogs.forEach(log => {
-            const id = log.requestId;
+            const id = log.requestId || log.params?.requestId;
+            if (!id) return;
             if (!requests[id]) requests[id] = {};
             requests[id][log.type] = log;
         });
@@ -165,17 +169,18 @@ export function formatLogsForAiPrompt(consoleLogs, networkLogs, userNote) {
                 prompt += `(... and more network requests)\n`;
                 break;
             }
-            const reqData = requests[requestId]['requestWillBeSent'];
-            const resData = requests[requestId]['responseReceived'];
-            const failData = requests[requestId]['loadingFailed'];
+            const reqData = requests[requestId]['Network.requestWillBeSent'];
+            const resData = requests[requestId]['Network.responseReceived'];
+            const failData = requests[requestId]['Network.loadingFailed'];
 
             if (reqData) {
-                let entry = `${reqData.request.method} ${reqData.request.url.substring(0,100)}${reqData.request.url.length > 100 ? '...' : ''}`;
+                const req = reqData.params.request;
+                let entry = `${req.method} ${req.url.substring(0,100)}${req.url.length > 100 ? '...' : ''}`;
                 if (resData) {
-                    entry += ` -> ${resData.response.status} ${resData.response.statusText}`;
+                    entry += ` -> ${resData.params.response.status} ${resData.params.response.statusText}`;
                 }
                 if (failData) {
-                    entry += ` -> FAILED: ${failData.errorText}`;
+                    entry += ` -> FAILED: ${failData.params.errorText}`;
                 }
                 prompt += `${entry}\n`;
                 networkEntryCount++;

@@ -1,0 +1,100 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Error - Advanced Bug Reporter Pro</title>
+    <style>
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', 'Roboto', sans-serif;
+            background-color: #f8fafc;
+            color: #1e293b;
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            min-height: 100vh;
+        }
+        .error-container {
+            background: white;
+            border-radius: 8px;
+            box-shadow: 0 4px 6px -1px rgb(0 0 0 / 0.1);
+            padding: 40px;
+            max-width: 500px;
+            text-align: center;
+        }
+        .error-icon {
+            width: 64px;
+            height: 64px;
+            margin: 0 auto 20px;
+            color: #ef4444;
+        }
+        h1 {
+            font-size: 24px;
+            margin-bottom: 10px;
+            color: #1e293b;
+        }
+        .error-message {
+            color: #64748b;
+            margin-bottom: 30px;
+            line-height: 1.6;
+        }
+        .error-details {
+            background: #f8fafc;
+            border: 1px solid #e2e8f0;
+            border-radius: 6px;
+            padding: 15px;
+            margin: 20px 0;
+            font-family: monospace;
+            font-size: 13px;
+            text-align: left;
+            color: #ef4444;
+            word-break: break-word;
+        }
+        .btn {
+            display: inline-block;
+            padding: 10px 20px;
+            background: #2563eb;
+            color: white;
+            text-decoration: none;
+            border-radius: 6px;
+            font-weight: 500;
+            transition: background 0.2s;
+        }
+        .btn:hover {
+            background: #1d4ed8;
+        }
+    </style>
+</head>
+<body>
+    <div class="error-container">
+        <svg class="error-icon" viewBox="0 0 24 24" fill="none">
+            <path d="M12 9V11M12 15H12.01M5.07 19H18.93C20.62 19 21.82 17.33 21.12 15.78L13.19 2.47C12.36 0.92 10.64 0.92 9.81 2.47L1.88 15.78C1.18 17.33 2.38 19 4.07 19Z" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+        <h1>Something went wrong</h1>
+        <p class="error-message" id="errorMessage">
+            An unexpected error occurred while processing your request.
+        </p>
+        <div class="error-details" id="errorDetails" style="display: none;"></div>
+        <a href="#" class="btn" onclick="window.close()">Close</a>
+    </div>
+    
+    <script>
+        // Parse error from URL parameters
+        const urlParams = new URLSearchParams(window.location.search);
+        const error = urlParams.get('error');
+        const details = urlParams.get('details');
+        
+        if (error) {
+            document.getElementById('errorMessage').textContent = error;
+        }
+        
+        if (details) {
+            const errorDetails = document.getElementById('errorDetails');
+            errorDetails.textContent = details;
+            errorDetails.style.display = 'block';
+        }
+    </script>
+</body>
+</html>

@@ -515,6 +515,29 @@ async function handleDownloadAll() {
         downloadBtn.disabled = true;
         downloadBtn.innerHTML = '<div class="loading"></div> Preparing...';
         
+        // Load JSZip using the loader
+        let JSZip;
+        try {
+            if (window.loadJSZip) {
+                JSZip = await window.loadJSZip();
+            } else {
+                // Fallback if loader isn't available
+                const response = await fetch('https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js');
+                const scriptText = await response.text();
+                eval(scriptText);
+                JSZip = window.JSZip;
+            }
+        } catch (error) {
+            console.error('Failed to load JSZip:', error);
+            showError('Failed to load compression library');
+            return;
+        }
+        
+        if (!JSZip) {
+            showError('Compression library not available');
+            return;
+        }
+        
         // Create a zip file with all data
         const zip = new JSZip();
         
