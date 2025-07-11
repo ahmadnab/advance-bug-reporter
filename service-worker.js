@@ -20,6 +20,7 @@ class RecordingStorage {
       recordings.length = 10;
     }
     
+    console.log('[ServiceWorker] RecordingStorage.saveRecording: Approx. size of recordings array being saved: ' + JSON.stringify(recordings).length + ' bytes. Number of records: ' + recordings.length);
     await chrome.storage.local.set({ recordings });
     return recording.id;
   }
@@ -164,8 +165,17 @@ chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
       return true; 
       
     case 'VIDEO_BUFFER_READY':
-      handleVideoBufferReady(message.payload);
-      break;
+      console.log('[ServiceWorker] VIDEO_BUFFER_READY received:', message.payload ? 'payload present' : 'no payload');
+      handleVideoBufferReady(message.payload)
+        .then(() => {
+          console.log('[ServiceWorker] VIDEO_BUFFER_READY processed.');
+          sendResponse({ success: true, message: "VIDEO_BUFFER_READY processed by service worker." });
+        })
+        .catch(error => {
+          console.error('[ServiceWorker] Error processing VIDEO_BUFFER_READY:', error);
+          sendResponse({ success: false, error: error.message });
+        });
+      return true; // Crucial for async sendResponse
       
     case 'RECORDING_ERROR':
       handleRecordingError(message.error);
@@ -280,12 +290,16 @@ async function handleStartRecording(tabId, options = {}) {
     
     // Inject scripts for console and DOM recording
     if (recordingState.recordConsole || recordingState.recordDOM) {
+      console.log('[ServiceWorker] handleStartRecording: Attempting to inject recording scripts...');
       await injectRecordingScripts();
+      console.log('[ServiceWorker] handleStartRecording: Finished injecting recording scripts.');
     }
     
     // Attach debugger for network recording
     if (recordingState.recordNetwork) {
+      console.log('[ServiceWorker] handleStartRecording: Attempting to attach debugger...');
       await attachDebugger();
+      console.log('[ServiceWorker] handleStartRecording: Finished attaching debugger.');
     }
     
     // Update badge
@@ -302,6 +316,7 @@ async function handleStartRecording(tabId, options = {}) {
     
     console.log('[ServiceWorker] Recording started successfully');
   } catch (error) {
+    console.error('[ServiceWorker] handleStartRecording: Error caught during setup:', error, 'Stack:', error.stack);
     await handleStopRecording(true, error.message);
     throw error;
   }
@@ -344,12 +359,20 @@ async function injectRecordingScripts() {
   }
   
   for (const file of scripts) {
-    await chrome.scripting.executeScript({
-      target: { tabId: recordingState.activeTabId },
-      files: [file],
-      injectImmediately: true,
-      world: 'ISOLATED'  // Changed from 'MAIN' to avoid conflicts
-    });
+    console.log(`[ServiceWorker] injectRecordingScripts: Attempting to inject ${file}`);
+    try {
+      await chrome.scripting.executeScript({
+        target: { tabId: recordingState.activeTabId },
+        files: [file],
+        injectImmediately: true,
+        world: 'ISOLATED'  // Changed from 'MAIN' to avoid conflicts
+      });
+      console.log(`[ServiceWorker] injectRecordingScripts: Successfully injected ${file}`);
+    } catch (injectionError) {
+      console.error(`[ServiceWorker] injectRecordingScripts: Failed to inject ${file}. Error:`, injectionError, 'Stack:', injectionError.stack);
+      // Optionally, re-throw or handle as a critical failure of handleStartRecording
+      throw injectionError; // Re-throw to be caught by handleStartRecording's catch block
+    }
   }
   
   recordingState.rrwebScriptInjected = recordingState.recordDOM;
@@ -414,92 +437,119 @@ async function handleStopRecording(forced = false, reason = '') {
 }
 
 async function handleVideoBufferReady(payload) {
+  console.log('[ServiceWorker] handleVideoBufferReady: Processing payload.');
   if (payload && payload.buffer instanceof ArrayBuffer && payload.mimeType) {
     try {
       recordingState.videoBlob = new Blob([payload.buffer], { type: payload.mimeType });
-      console.log('[ServiceWorker] Video blob created, size:', recordingState.videoBlob.size);
+      console.log('[ServiceWorker] handleVideoBufferReady: Video blob created, size:', recordingState.videoBlob.size);
     } catch (error) {
-      console.error('[ServiceWorker] Error creating video blob:', error);
+      console.error('[ServiceWorker] handleVideoBufferReady: Error creating video blob:', error);
+    }
+  }
+  
+  if (payload && payload.buffer instanceof ArrayBuffer && payload.mimeType) {
+    try {
+      recordingState.videoBlob = new Blob([payload.buffer], { type: payload.mimeType });
+      console.log('[ServiceWorker] handleVideoBufferReady: Video blob created, size:', recordingState.videoBlob.size);
+    } catch (error) {
+      console.error('[ServiceWorker] handleVideoBufferReady: Error creating video blob:', error);
     }
   }
   
   if (recordingState.isWaitingForVideoData) {
     await finalizeRecording();
   }
-  
   closeOffscreenDocumentIfNeeded();
+  console.log('[ServiceWorker] handleVideoBufferReady: Full processing complete.');
 }
 
 async function handleRecordingError(error) {
-  console.error('[ServiceWorker] Recording error:', error);
+  console.error('[ServiceWorker] handleRecordingError: Received error:', error);
   
   if (recordingState.isWaitingForVideoData) {
     await finalizeRecording(error);
   }
-  
   closeOffscreenDocumentIfNeeded();
+  console.log('[ServiceWorker] handleRecordingError: Full processing complete.');
 }
 
 async function finalizeRecording(error = null) {
-  recordingState.isRecording = false;
-  recordingState.isWaitingForVideoData = false;
-  
-  chrome.action.setBadgeText({ text: '' });
-  
-  // Get screen resolution
   try {
-    const displays = await chrome.system.display.getInfo();
-    if (displays.length > 0) {
-      const primary = displays.find(d => d.isPrimary) || displays[0];
-      recordingState.screenResolution = `${primary.bounds.width}x${primary.bounds.height}`;
+    console.log(`[ServiceWorker] finalizeRecording: Starting. Initial error param:`, error);
+    recordingState.isRecording = false;
+    recordingState.isWaitingForVideoData = false;
+    
+    chrome.action.setBadgeText({ text: '' });
+    
+    // Get screen resolution
+    try {
+      const displays = await chrome.system.display.getInfo();
+      if (displays.length > 0) {
+        const primary = displays.find(d => d.isPrimary) || displays[0];
+        recordingState.screenResolution = `${primary.bounds.width}x${primary.bounds.height}`;
+      }
+    } catch (e) {
+      console.warn('[ServiceWorker] finalizeRecording: Could not get display info:', e);
     }
-  } catch (e) {
-    console.warn('[ServiceWorker] Could not get display info:', e);
-  }
-  
-  // Save recording
-  const recording = {
-    id: `rec_${Date.now()}`,
-    timestamp: recordingState.recordingStartTime,
-    duration: Date.now() - recordingState.recordingStartTime,
-    pageUrl: recordingState.pageUrl,
-    pageTitle: recordingState.pageTitle,
-    userAgent: navigator.userAgent,
-    screenResolution: recordingState.screenResolution,
-    hasVideo: !!recordingState.videoBlob,
-    hasDOM: recordingState.domEvents.length > 0,
-    consoleLogs: recordingState.consoleLogs.length,
-    networkLogs: recordingState.networkLogs.length,
-    error: error
-  };
-  
-  // Store recording data
-  await chrome.storage.local.set({
-    [`recording_${recording.id}`]: {
-      ...recording,
-      videoBlob: recordingState.videoBlob,
-      domEvents: recordingState.domEvents,
-      consoleLogs: recordingState.consoleLogs,
-      networkLogs: recordingState.networkLogs
+    
+    // Save recording
+    const recording = {
+      id: `rec_${Date.now()}`,
+      timestamp: recordingState.recordingStartTime,
+      duration: Date.now() - recordingState.recordingStartTime,
+      pageUrl: recordingState.pageUrl,
+      pageTitle: recordingState.pageTitle,
+      userAgent: navigator.userAgent,
+      screenResolution: recordingState.screenResolution,
+      hasVideo: !!recordingState.videoBlob,
+      hasDOM: recordingState.domEvents.length > 0,
+      consoleLogs: recordingState.consoleLogs.length,
+      networkLogs: recordingState.networkLogs.length,
+      error: error ? (typeof error === 'string' ? error.substring(0, 500) : ( (error.message ? String(error.message).substring(0,500) : 'Unknown error object') + (error.name ? ` (Name: ${String(error.name)})` : '') ) ) : null
+    };
+    
+    // console.log('[ServiceWorker] finalizeRecording: Recording object prepared:', recording); // Original log
+    console.log('[ServiceWorker] finalizeRecording: Recording object prepared (metadata with sanitized error):', recording);
+
+    // Store only the 'recording' object (metadata) under the dynamic key.
+    // The actual large data (consoleLogs, networkLogs, videoBlob, domEvents)
+    // are still in recordingState but are NOT being saved to chrome.storage.local here.
+    // This is a temporary step to prevent quota errors.
+    // For a full solution, these large data pieces would be saved to IndexedDB.
+    console.log(`[ServiceWorker] finalizeRecording: Attempting to save metadata for recording ID ${recording.id} to chrome.storage.local.set.`);
+    console.log('[ServiceWorker] finalizeRecording: Approx. size of single metadata item being saved: ' + JSON.stringify(recording).length + ' bytes');
+    await chrome.storage.local.set({
+      [`recording_${recording.id}`]: recording // 'recording' object itself is just metadata
+    });
+    console.log(`[ServiceWorker] finalizeRecording: Metadata for recording ID ${recording.id} stored in local.set.`);
+    
+    // RecordingStorage.saveRecording also saves a summary (the 'recording' object) 
+    // to a general 'recordings' list. This is fine as 'recording' is metadata.
+    await RecordingStorage.saveRecording(recording); 
+    console.log('[ServiceWorker] finalizeRecording: Recording summary saved via RecordingStorage.');
+    
+    // Open review page only if there was no initial error passed to finalizeRecording
+    if (!error) {
+      console.log('[ServiceWorker] finalizeRecording: No initial error, attempting to open review page.');
+      await openRecordingReview(recording.id);
+    } else {
+      console.log('[ServiceWorker] finalizeRecording: Initial error present, skipping review page opening.');
     }
-  });
-  
-  await RecordingStorage.saveRecording(recording);
-  
-  // Open review page
-  if (!error) {
-    await openRecordingReview(recording.id);
+    
+    // Notify popup
+    chrome.runtime.sendMessage({
+      type: 'RECORDING_STOPPED',
+      payload: { recordingId: recording.id, error }
+    }).catch((e) => {
+      console.warn('[ServiceWorker] finalizeRecording: Failed to send RECORDING_STOPPED to popup (it might be closed). Error:', e);
+    });
+    
+    console.log('[ServiceWorker] Recording finalized successfully:', recording.id);
+  } catch (criticalError) {
+    console.error('[ServiceWorker] CRITICAL ERROR in finalizeRecording:', criticalError, 'Stack:', criticalError.stack);
+    // Potentially try to notify the user or log this critical failure more permanently
+    // Avoid further complex operations here that might also fail
   }
-  
-  // Notify popup
-  chrome.runtime.sendMessage({
-    type: 'RECORDING_STOPPED',
-    payload: { recordingId: recording.id, error }
-  }).catch(() => {
-    // Popup might be closed, ignore
-  });
-  
-  console.log('[ServiceWorker] Recording finalized:', recording.id);
 }
 
 async function openRecordingReview(recordingId) {
